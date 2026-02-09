@@ -1,6 +1,6 @@
 import { readFile } from "fs/promises";
 import { join } from "path";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import type { Dependency, ParserResult } from "../../types.js";
 
 export async function parseCargo(dir: string): Promise<ParserResult | null> {
@@ -41,10 +41,12 @@ export async function parseCargo(dir: string): Promise<ParserResult | null> {
 
 function tryCargoTree(dir: string): Dependency[] | null {
   try {
-    const output = execSync("cargo tree --prefix depth 2>/dev/null", {
+    // OWASP CWE-78: use execFileSync (no shell) with args as array
+    const output = execFileSync("cargo", ["tree", "--prefix", "depth"], {
       cwd: dir,
       timeout: 30000,
       encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
     const deps: Dependency[] = [];

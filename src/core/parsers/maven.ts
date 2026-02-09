@@ -1,6 +1,6 @@
 import { readFile } from "fs/promises";
 import { join } from "path";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { XMLParser } from "fast-xml-parser";
 import type { Dependency, ParserResult } from "../../types.js";
 
@@ -43,14 +43,21 @@ export async function parseMaven(dir: string): Promise<ParserResult | null> {
 /** Run `mvn dependency:tree` for full transitive dependency graph */
 function tryMvnDependencyTree(dir: string): string {
   try {
+    // OWASP CWE-78: use execFileSync (no shell) with args as array
     // Try mvnw first (Maven Wrapper), then global mvn
-    const commands = [
-      join(dir, "mvnw") + " dependency:tree -DoutputType=text 2>/dev/null",
-      "mvn dependency:tree -DoutputType=text 2>/dev/null",
+    const executables = [
+      join(dir, "mvnw"),
+      "mvn",
     ];
-    for (const cmd of commands) {
+    const args = ["dependency:tree", "-DoutputType=text"];
+    for (const exe of executables) {
       try {
-        return execSync(cmd, { cwd: dir, timeout: 60000, encoding: "utf-8" });
+        return execFileSync(exe, args, {
+          cwd: dir,
+          timeout: 60000,
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+        });
       } catch { continue; }
     }
   } catch {}
@@ -215,13 +222,20 @@ function resolveProperty(value: string, props: Record<string, string>): string {
 /** Run `gradle dependencies` for tree output */
 function tryGradleDependencyTree(dir: string): string {
   try {
-    const commands = [
-      join(dir, "gradlew") + " dependencies --configuration runtimeClasspath 2>/dev/null",
-      "gradle dependencies --configuration runtimeClasspath 2>/dev/null",
+    // OWASP CWE-78: use execFileSync (no shell) with args as array
+    const executables = [
+      join(dir, "gradlew"),
+      "gradle",
     ];
-    for (const cmd of commands) {
+    const args = ["dependencies", "--configuration", "runtimeClasspath"];
+    for (const exe of executables) {
       try {
-        return execSync(cmd, { cwd: dir, timeout: 60000, encoding: "utf-8" });
+        return execFileSync(exe, args, {
+          cwd: dir,
+          timeout: 60000,
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+        });
       } catch { continue; }
     }
   } catch {}

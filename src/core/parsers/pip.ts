@@ -1,7 +1,16 @@
 import { readFile, readdir, access } from "fs/promises";
 import { join, resolve } from "path";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import type { Dependency, ParserResult } from "../../types.js";
+
+/**
+ * OWASP CWE-78 mitigation: validate that a package name contains only
+ * safe characters (alphanumeric, hyphens, underscores, dots).
+ * Rejects anything that could be used for shell injection.
+ */
+function isSafePackageName(name: string): boolean {
+  return /^[a-zA-Z0-9._-]+$/.test(name);
+}
 
 export async function parsePip(dir: string): Promise<ParserResult | null> {
   // Try lockfiles in order of richness:
@@ -282,10 +291,12 @@ async function tryPipdeptree(dir: string, directNames: Set<string>): Promise<Dep
     let jsonOutput: string | null = null;
     for (const py of pythonPaths) {
       try {
-        jsonOutput = execSync(`${py} -m pipdeptree --json 2>/dev/null`, {
+        // OWASP CWE-78: use execFileSync (no shell) with args as array
+        jsonOutput = execFileSync(py, ["-m", "pipdeptree", "--json"], {
           cwd: dir,
           timeout: 15000,
           encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
         });
         if (jsonOutput) break;
       } catch { continue; }
@@ -355,7 +366,12 @@ async function tryPipShow(dir: string, directDeps: Dependency[]): Promise<Depend
     let pipCmd: string | null = null;
     for (const p of pythonPaths) {
       try {
-        execSync(`${p} --version 2>/dev/null`, { timeout: 5000, encoding: "utf-8" });
+        // OWASP CWE-78: use execFileSync (no shell) with args as array
+        execFileSync(p, ["--version"], {
+          timeout: 5000,
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+        });
         pipCmd = p;
         break;
       } catch { continue; }
@@ -367,13 +383,16 @@ async function tryPipShow(dir: string, directDeps: Dependency[]): Promise<Depend
     const directNames = new Set<string>(directDeps.map(d => d.name));
 
     // Get all installed packages' info in a batch
-    const allNames = directDeps.map(d => d.name).join(" ");
+    // OWASP CWE-78: validate package names and pass as array args (no shell)
+    const safeNames = directDeps.map(d => d.name).filter(isSafePackageName);
+    if (safeNames.length === 0) return null;
     let showOutput: string;
     try {
-      showOutput = execSync(`${pipCmd} show ${allNames} 2>/dev/null`, {
+      showOutput = execFileSync(pipCmd, ["show", ...safeNames], {
         cwd: dir,
         timeout: 15000,
         encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
       });
     } catch { return null; }
 
@@ -395,16 +414,20 @@ async function tryPipShow(dir: string, directDeps: Dependency[]): Promise<Depend
             if (normalized && !seen.has(normalized)) {
               seen.add(normalized);
               // Try to get version from a second pip show call
+              // OWASP CWE-78: validate name and use execFileSync (no shell)
               let reqVersion = "unknown";
-              try {
-                const reqInfo = execSync(`${pipCmd} show ${normalized} 2>/dev/null`, {
-                  cwd: dir,
-                  timeout: 5000,
-                  encoding: "utf-8",
-                });
-                const rv = reqInfo.match(/^Version:\s*(.+)/m);
-                if (rv) reqVersion = rv[1].trim();
-              } catch {}
+              if (isSafePackageName(normalized)) {
+                try {
+                  const reqInfo = execFileSync(pipCmd, ["show", normalized], {
+                    cwd: dir,
+                    timeout: 5000,
+                    encoding: "utf-8",
+                    stdio: ["pipe", "pipe", "pipe"],
+                  });
+                  const rv = reqInfo.match(/^Version:\s*(.+)/m);
+                  if (rv) reqVersion = rv[1].trim();
+                } catch {}
+              }
 
               allDeps.push({
                 name: normalized,
