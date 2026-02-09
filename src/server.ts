@@ -92,6 +92,7 @@ export function createApp(): Hono {
   });
 
   // ─── API: Package info (description, latest version) from registry ───
+  // Supports all ecosystems: npm, pip, go, maven, cargo, nuget, gem, composer
   app.get("/api/package-info", async (c) => {
     try {
       const ecosystem = c.req.query("ecosystem") || "";
@@ -99,11 +100,11 @@ export function createApp(): Hono {
       if (!name || !ecosystem) {
         return c.json({ error: "ecosystem and name are required" }, 400);
       }
-      const safeName = encodeURIComponent(name);
       let description = "";
       let latestVersion = "";
 
       if (ecosystem === "npm") {
+        const safeName = encodeURIComponent(name);
         const res = await fetch(`https://registry.npmjs.org/${safeName}`);
         if (res.ok) {
           const data = (await res.json()) as { description?: string; "dist-tags"?: { latest?: string } };
@@ -111,11 +112,81 @@ export function createApp(): Hono {
           latestVersion = data["dist-tags"]?.latest || "";
         }
       } else if (ecosystem === "pip") {
+        const safeName = encodeURIComponent(name);
         const res = await fetch(`https://pypi.org/pypi/${safeName}/json`);
         if (res.ok) {
           const data = (await res.json()) as { info?: { summary?: string; version?: string } };
           description = data.info?.summary || "";
           latestVersion = data.info?.version || "";
+        }
+      } else if (ecosystem === "go") {
+        // Go proxy: list versions, last line = latest
+        const safeName = encodeURIComponent(name);
+        const res = await fetch(`https://proxy.golang.org/${safeName}/@v/list`);
+        if (res.ok) {
+          const text = await res.text();
+          const versions = text.trim().split("\n").filter(Boolean);
+          if (versions.length > 0) latestVersion = versions[versions.length - 1];
+        }
+        // Try pkg.go.dev for description
+        const infoRes = await fetch(`https://proxy.golang.org/${safeName}/@latest`);
+        if (infoRes.ok) {
+          const info = (await infoRes.json()) as { Version?: string };
+          if (info.Version && !latestVersion) latestVersion = info.Version;
+        }
+      } else if (ecosystem === "maven") {
+        // Maven Central search API; name format = "group:artifact"
+        const parts = name.split(":");
+        let q = `a:${encodeURIComponent(name)}`;
+        if (parts.length >= 2) {
+          q = `g:${encodeURIComponent(parts[0])}+AND+a:${encodeURIComponent(parts[1])}`;
+        }
+        const res = await fetch(`https://search.maven.org/solrsearch/select?q=${q}&rows=1&wt=json`);
+        if (res.ok) {
+          const data = (await res.json()) as { response?: { docs?: Array<{ latestVersion?: string; p?: string }> } };
+          const doc = data.response?.docs?.[0];
+          if (doc) {
+            latestVersion = doc.latestVersion || "";
+          }
+        }
+      } else if (ecosystem === "cargo") {
+        const safeName = encodeURIComponent(name);
+        const res = await fetch(`https://crates.io/api/v1/crates/${safeName}`, {
+          headers: { "User-Agent": "SCATO/3.0.0 (https://github.com/saivarun3407/SCATO)" }
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { crate?: { description?: string; newest_version?: string } };
+          description = data.crate?.description || "";
+          latestVersion = data.crate?.newest_version || "";
+        }
+      } else if (ecosystem === "nuget") {
+        const safeName = name.toLowerCase();
+        const res = await fetch(`https://api.nuget.org/v3-flatcontainer/${encodeURIComponent(safeName)}/index.json`);
+        if (res.ok) {
+          const data = (await res.json()) as { versions?: string[] };
+          if (data.versions && data.versions.length > 0) {
+            latestVersion = data.versions[data.versions.length - 1];
+          }
+        }
+      } else if (ecosystem === "gem") {
+        const safeName = encodeURIComponent(name);
+        const res = await fetch(`https://rubygems.org/api/v1/gems/${safeName}.json`);
+        if (res.ok) {
+          const data = (await res.json()) as { info?: string; version?: string };
+          description = data.info || "";
+          latestVersion = data.version || "";
+        }
+      } else if (ecosystem === "composer") {
+        const safeName = encodeURIComponent(name);
+        const res = await fetch(`https://repo.packagist.org/p2/${safeName}.json`);
+        if (res.ok) {
+          const data = (await res.json()) as { packages?: Record<string, Array<{ version?: string; description?: string }>> };
+          const pkgVersions = data.packages?.[name];
+          if (pkgVersions && pkgVersions.length > 0) {
+            // First entry is the latest
+            latestVersion = pkgVersions[0].version || "";
+            description = pkgVersions[0].description || "";
+          }
         }
       }
 

@@ -184,25 +184,33 @@ export function getDashboardHTML(): string {
   .risk-bar { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
   .risk-label { font-size: 1.2rem; font-weight: 700; min-width: 60px; text-align: right; }
 
-  /* Remediation Card */
-  .remediation-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  /* Prioritized Remediation Plan */
+  .remediation-header { margin-bottom: 4px; }
   .remediation-header h3 { margin: 0; }
-  .remediation-summary { font-size: 0.85rem; color: var(--muted); max-width: 500px; }
-  .remediation-action { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; transition: border-color 0.2s; }
+  .remediation-summary-box { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 14px; }
+  .remediation-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 8px; }
+  .remediation-summary-stat { text-align: center; }
+  .remediation-summary-stat .val { font-size: 1.3rem; font-weight: 800; }
+  .remediation-summary-stat .lbl { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .remediation-action { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 10px; transition: border-color 0.2s; }
   .remediation-action:hover { border-color: var(--accent); }
   .remediation-action-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
   .remediation-action-left { flex: 1; min-width: 200px; }
   .remediation-action-pkg { font-weight: 700; font-size: 1rem; }
   .remediation-action-upgrade { color: var(--green); font-size: 0.9rem; margin-top: 2px; }
   .remediation-action-right { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .remediation-threat { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 700; }
-  .threat-critical { background: rgba(248,81,73,0.2); color: var(--red); }
-  .threat-high { background: rgba(255,166,87,0.2); color: var(--orange); }
-  .threat-medium { background: rgba(255,215,0,0.2); color: var(--yellow); }
-  .threat-low { background: rgba(63,185,80,0.2); color: var(--green); }
-  .remediation-roi { display: inline-flex; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; background: rgba(136,192,208,0.15); color: var(--accent); }
-  .remediation-reason { margin-top: 10px; font-size: 0.88rem; color: var(--text); line-height: 1.5; }
-  .remediation-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .remediation-metric { display: inline-flex; flex-direction: column; align-items: center; padding: 4px 12px; border-radius: 8px; font-size: 0.78rem; min-width: 64px; }
+  .remediation-metric .m-val { font-weight: 800; font-size: 1rem; }
+  .remediation-metric .m-lbl { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.3px; opacity: 0.8; }
+  .metric-risk { background: rgba(248,81,73,0.15); color: var(--red); }
+  .metric-roi { background: rgba(63,185,80,0.15); color: var(--green); }
+  .metric-epss { background: rgba(255,166,87,0.15); color: var(--orange); }
+  .metric-cvss { background: rgba(136,192,208,0.15); color: var(--accent); }
+  .remediation-analysis { margin-top: 12px; font-size: 0.85rem; line-height: 1.65; color: var(--text); border-left: 3px solid var(--border); padding-left: 12px; }
+  .remediation-analysis dt { font-weight: 700; color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 8px; }
+  .remediation-analysis dt:first-child { margin-top: 0; }
+  .remediation-analysis dd { margin: 2px 0 0 0; }
+  .remediation-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
   .remediation-rank { width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.85rem; background: var(--accent); color: var(--bg-dark); flex-shrink: 0; }
 
   /* Hidden */
@@ -242,7 +250,6 @@ export function getDashboardHTML(): string {
           <input id="targetInput" type="text" placeholder="Absolute path to project, or . (server&#39;s current directory)" value="." title="Path is resolved on the server. Use . to scan where the server was started." />
         </div>
         <button type="button" class="btn btn-primary" id="scanBtn" onclick="runScan()">Scan</button>
-        <button type="button" class="btn btn-secondary" id="demoBtn" onclick="loadDemo()" title="Load sample data with KEV vulnerabilities to preview all features">Demo</button>
       </div>
       <div class="options-row">
         <label><input type="checkbox" id="optSkipLicenses"> Skip licenses</label>
@@ -271,12 +278,12 @@ export function getDashboardHTML(): string {
         </div>
       </div>
 
-      <!-- High-Impact Remediation -->
+      <!-- Prioritized Remediation Plan -->
       <div class="card hidden" id="remediationCard">
         <div class="remediation-header">
-          <h3>High-Impact Remediation</h3>
-          <span class="remediation-summary" id="remediationSummary"></span>
+          <h3>Prioritized Remediation Plan</h3>
         </div>
+        <div class="remediation-summary-box" id="remediationSummaryBox"></div>
         <div id="remediationActions"></div>
       </div>
 
@@ -473,165 +480,7 @@ function runScan() {
   });
 }
 
-/* runScan is now global (no IIFE wrapper) */
-
-/* ── Demo: load sample data with KEV vulns to preview sort/filter features ── */
-function loadDemo() {
-  var demoReport = {
-    target: "/demo/sample-project",
-    timestamp: new Date().toISOString(),
-    ecosystems: ["npm"],
-    totalDependencies: 8,
-    totalVulnerabilities: 7,
-    severityCounts: { CRITICAL: 2, HIGH: 3, MEDIUM: 1, LOW: 1 },
-    metrics: { riskScore: 82 },
-    results: [
-      {
-        dependency: { name: "libwebp", version: "1.3.1", ecosystem: "npm", isDirect: true, license: "BSD-3-Clause" },
-        vulnerabilities: [
-          {
-            id: "CVE-2023-4863",
-            severity: "CRITICAL",
-            score: 8.8,
-            cvssVector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
-            summary: "Heap buffer overflow in libwebp allows a remote attacker to perform an out of bounds memory write via a crafted HTML page.",
-            affected_versions: "<1.3.2",
-            fixed_version: "1.3.2",
-            isKnownExploited: true,
-            kevDateAdded: "2023-09-13",
-            kevDueDate: "2023-10-04",
-            epssScore: 0.9408,
-            cwes: ["CWE-787"],
-            source: "OSV",
-            references: ["https://nvd.nist.gov/vuln/detail/CVE-2023-4863"]
-          }
-        ]
-      },
-      {
-        dependency: { name: "log4j-core", version: "2.14.1", ecosystem: "maven", isDirect: true, license: "Apache-2.0" },
-        vulnerabilities: [
-          {
-            id: "CVE-2021-44228",
-            severity: "CRITICAL",
-            score: 10.0,
-            cvssVector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
-            summary: "Apache Log4j2 JNDI features used in configuration, log messages, and parameters do not protect against attacker-controlled LDAP and other JNDI related endpoints (Log4Shell).",
-            affected_versions: ">=2.0-beta9 <2.15.0",
-            fixed_version: "2.15.0",
-            isKnownExploited: true,
-            kevDateAdded: "2021-12-10",
-            kevDueDate: "2021-12-24",
-            epssScore: 0.976,
-            cwes: ["CWE-502", "CWE-400"],
-            source: "GHSA",
-            references: ["https://nvd.nist.gov/vuln/detail/CVE-2021-44228"]
-          },
-          {
-            id: "CVE-2021-45046",
-            severity: "HIGH",
-            score: 9.0,
-            cvssVector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:H",
-            summary: "Apache Log4j2 Thread Context Map pattern is vulnerable to RCE in certain non-default configurations.",
-            affected_versions: ">=2.0-beta9 <2.16.0",
-            fixed_version: "2.16.0",
-            isKnownExploited: true,
-            kevDateAdded: "2023-05-01",
-            kevDueDate: "2023-05-22",
-            epssScore: 0.926,
-            cwes: ["CWE-502"],
-            source: "GHSA",
-            references: ["https://nvd.nist.gov/vuln/detail/CVE-2021-45046"]
-          }
-        ]
-      },
-      {
-        dependency: { name: "express", version: "4.17.1", ecosystem: "npm", isDirect: true, license: "MIT" },
-        vulnerabilities: [
-          {
-            id: "CVE-2024-29041",
-            severity: "HIGH",
-            score: 7.5,
-            summary: "Express.js open redirect vulnerability via malformed URLs.",
-            affected_versions: "<4.19.2",
-            fixed_version: "4.19.2",
-            isKnownExploited: false,
-            epssScore: 0.12,
-            cwes: ["CWE-601"],
-            source: "OSV",
-            references: []
-          }
-        ]
-      },
-      {
-        dependency: { name: "jsonwebtoken", version: "8.5.1", ecosystem: "npm", isDirect: true, license: "MIT" },
-        vulnerabilities: [
-          {
-            id: "CVE-2022-23529",
-            severity: "HIGH",
-            score: 7.6,
-            summary: "jsonwebtoken vulnerable to Insecure Key Retrieval when fetching keys from untrusted sources.",
-            affected_versions: "<9.0.0",
-            fixed_version: "9.0.0",
-            isKnownExploited: false,
-            epssScore: 0.045,
-            cwes: ["CWE-20"],
-            source: "GHSA",
-            references: []
-          }
-        ]
-      },
-      {
-        dependency: { name: "minimist", version: "1.2.5", ecosystem: "npm", isDirect: false, parent: "express", license: "MIT" },
-        vulnerabilities: [
-          {
-            id: "CVE-2021-44906",
-            severity: "MEDIUM",
-            score: 5.6,
-            summary: "Prototype pollution in minimist allows adding or modifying properties of Object.prototype.",
-            affected_versions: "<1.2.6",
-            fixed_version: "1.2.6",
-            isKnownExploited: false,
-            epssScore: 0.02,
-            cwes: ["CWE-1321"],
-            source: "OSV",
-            references: []
-          }
-        ]
-      },
-      {
-        dependency: { name: "qs", version: "6.5.2", ecosystem: "npm", isDirect: false, parent: "express", license: "BSD-3-Clause" },
-        vulnerabilities: [
-          {
-            id: "CVE-2022-24999",
-            severity: "LOW",
-            score: 3.7,
-            summary: "qs prototype poisoning vulnerability allows attackers to cause a denial of service.",
-            affected_versions: "<6.5.3",
-            fixed_version: "6.5.3",
-            isKnownExploited: false,
-            epssScore: 0.008,
-            cwes: ["CWE-1321"],
-            source: "OSV",
-            references: []
-          }
-        ]
-      },
-      {
-        dependency: { name: "lodash", version: "4.17.21", ecosystem: "npm", isDirect: true, license: "MIT" },
-        vulnerabilities: []
-      },
-      {
-        dependency: { name: "axios", version: "1.6.0", ecosystem: "npm", isDirect: true, license: "MIT" },
-        vulnerabilities: []
-      }
-    ]
-  };
-  currentReport = demoReport;
-  renderResults(demoReport);
-  var el = byId("scanResults");
-  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-/* loadDemo is global */
+/* runScan is global */
 
 /* ── Render consolidated advisory count badges for a vuln array ── */
 function vulnSummaryBadges(vulns) {
@@ -1104,153 +953,384 @@ function renderDepTree() {
 /* renderDepTree is global */
 
 /* ── Render results ── */
-/* ── High-Impact Remediation engine (client-side) ── */
+/* ── Prioritized Remediation Engine (client-side) ── */
+/* Mirrors server: max + dampened sum, exponential severity, KEV multiplier, tie-break by CVE count. */
 function computeRemediation(vulnResults) {
-  var WEIGHT_KEV = 40, WEIGHT_EPSS = 25, WEIGHT_VECTOR = 15, WEIGHT_SEV = 15, WEIGHT_FIX = 5;
-  var SEV_SCORE = { CRITICAL: 1.0, HIGH: 0.75, MEDIUM: 0.45, LOW: 0.2, UNKNOWN: 0.1 };
+  var WEIGHT_KEV = 30, WEIGHT_EPSS = 20, WEIGHT_VECTOR = 15, WEIGHT_SEV = 30, WEIGHT_FIX = 5;
+  var MAX_SCORE_PER_VULN = WEIGHT_KEV + WEIGHT_EPSS + WEIGHT_VECTOR + WEIGHT_SEV + WEIGHT_FIX;
+  var DAMPENER = 0.1;
+  var KEV_MULTIPLIER = 2.5;
+  var SEV_SCORE = { CRITICAL: 1.0, HIGH: 0.5, MEDIUM: 0.15, LOW: 0.03, UNKNOWN: 0.01 };
 
   function scoreVuln(v) {
     var s = 0;
-    if (v.isKnownExploited) s += WEIGHT_KEV;
-    s += (v.epssScore || 0) * WEIGHT_EPSS;
-    /* Vector analysis */
+    var breakdown = { kev: 0, epss: 0, vector: 0, severity: 0, fix: 0 };
+    if (v.isKnownExploited) { s += WEIGHT_KEV; breakdown.kev = WEIGHT_KEV; }
+    var epssContrib = (v.epssScore || 0) * WEIGHT_EPSS;
+    s += epssContrib; breakdown.epss = Math.round(epssContrib * 100) / 100;
     var vec = v.cvssVector || '';
     var vs = 0;
     if (vec.indexOf('AV:N') !== -1) vs += 0.4; else if (vec.indexOf('AV:A') !== -1) vs += 0.24; else vs += 0.15;
     if (vec.indexOf('AC:L') !== -1) vs += 0.3; else vs += 0.1;
     if (vec.indexOf('UI:N') !== -1) vs += 0.2; else vs += 0.05;
     if (vec.indexOf('S:C') !== -1) vs += 0.1;
-    s += Math.min(1.0, vs) * WEIGHT_VECTOR;
+    var vecContrib = Math.min(1.0, vs) * WEIGHT_VECTOR;
+    s += vecContrib; breakdown.vector = Math.round(vecContrib * 100) / 100;
     var sevKey = (v.severity || 'UNKNOWN').toUpperCase();
-    s += (SEV_SCORE[sevKey] || 0.1) * WEIGHT_SEV;
-    if (v.fixed_version) s += WEIGHT_FIX;
-    return s;
+    var sevContrib = (SEV_SCORE[sevKey] || 0.01) * WEIGHT_SEV;
+    s += sevContrib; breakdown.severity = Math.round(sevContrib * 100) / 100;
+    if (v.fixed_version) { s += WEIGHT_FIX; breakdown.fix = WEIGHT_FIX; }
+    return { score: Math.round(s * 100) / 100, breakdown: breakdown };
   }
 
   function isNetworkRce(v) {
     var vec = v.cvssVector || '';
     if (vec.indexOf('AV:N') === -1) return false;
-    var highImpact = vec.indexOf('C:H') !== -1 && vec.indexOf('I:H') !== -1;
-    return highImpact;
+    return vec.indexOf('C:H') !== -1 && vec.indexOf('I:H') !== -1;
   }
 
-  var totalRisk = 0;
-  for (var i = 0; i < vulnResults.length; i++) {
-    for (var j = 0; j < vulnResults[i].vulnerabilities.length; j++) {
-      totalRisk += scoreVuln(vulnResults[i].vulnerabilities[j]);
-    }
+  function attackVector(v) {
+    var vec = v.cvssVector || '';
+    if (vec.indexOf('AV:N') !== -1) return 'Network';
+    if (vec.indexOf('AV:A') !== -1) return 'Adjacent';
+    if (vec.indexOf('AV:L') !== -1) return 'Local';
+    if (vec.indexOf('AV:P') !== -1) return 'Physical';
+    return 'Unknown';
   }
+
+  function formatRiskDominator(topCve, sevStr, av) {
+    var rce = (av === 'Network' && (topCve.cvss >= 9 || sevStr === 'CRITICAL' || sevStr === 'HIGH')) ? ' RCE' : '';
+    return '1 ' + sevStr + rce + ' (' + av + ')';
+  }
+
+  var totalRiskScore = 0;
+  var totalVulnCount = 0;
+  var totalKevCount = 0;
+  var totalCritCount = 0;
+  var totalHighCount = 0;
 
   var actions = [];
-  for (i = 0; i < vulnResults.length; i++) {
+  for (var i = 0; i < vulnResults.length; i++) {
     var res = vulnResults[i];
     var dep = res.dependency;
     var vulns = res.vulnerabilities;
-    var pkgScore = 0, kc = 0, mEpss = 0, mCvss = 0, netRce = false;
-    var sc = {};
-    var bestFix = null;
-    for (j = 0; j < vulns.length; j++) {
+    if (!vulns || vulns.length === 0) continue;
+
+    var kc = 0, mEpss = 0, mCvss = 0, netRce = false;
+    var sc = {}, cveList = [], breakdowns = [];
+    var bestFix = null, fixCoverage = 0;
+    var avSet = {};
+    var cveScores = [];
+
+    for (var j = 0; j < vulns.length; j++) {
       var v = vulns[j];
-      pkgScore += scoreVuln(v);
+      var scored = scoreVuln(v);
+      cveScores.push(scored.score);
+      breakdowns.push(scored.breakdown);
       if (v.isKnownExploited) kc++;
       if ((v.epssScore || 0) > mEpss) mEpss = v.epssScore || 0;
       if ((v.score || 0) > mCvss) mCvss = v.score || 0;
       if (isNetworkRce(v)) netRce = true;
       var sv = (v.severity || 'UNKNOWN').toUpperCase();
       sc[sv] = (sc[sv] || 0) + 1;
-      if (v.fixed_version) bestFix = v.fixed_version;
+      if (v.fixed_version) { bestFix = v.fixed_version; fixCoverage++; }
+      avSet[attackVector(v)] = true;
+      cveList.push({
+        id: v.id || (v.aliases && v.aliases[0]) || 'N/A',
+        severity: sv,
+        cvss: v.score || 0,
+        epss: v.epssScore || 0,
+        kev: !!v.isKnownExploited,
+        vector: v.cvssVector || 'N/A',
+        fix: v.fixed_version || null,
+        score: scored.score,
+        attackVector: attackVector(v)
+      });
+
+      totalVulnCount++;
+      if (v.isKnownExploited) totalKevCount++;
+      if (sv === 'CRITICAL') totalCritCount++;
+      if (sv === 'HIGH') totalHighCount++;
     }
-    var roi = totalRisk > 0 ? Math.round(pkgScore / totalRisk * 1000) / 10 : 0;
-    var threat = Math.min(100, Math.round(pkgScore / Math.max(vulns.length, 1)));
+
+    /* Aggregation: max + dampened sum */
+    cveScores.sort(function(a, b) { return b - a; });
+    var maxScore = cveScores[0] || 0;
+    var restSum = 0;
+    for (j = 1; j < cveScores.length; j++) restSum += cveScores[j];
+    var baseRiskScore = Math.round((maxScore + restSum * DAMPENER) * 100) / 100;
+    var hasKEV = kc > 0;
+    var pkgScore = Math.round((hasKEV ? baseRiskScore * KEV_MULTIPLIER : baseRiskScore) * 100) / 100;
+    totalRiskScore += pkgScore;
+
+    var pkgBreakdown = { kev: 0, epss: 0, vector: 0, severity: 0, fix: 0 };
+    for (j = 0; j < breakdowns.length; j++) {
+      pkgBreakdown.kev += breakdowns[j].kev;
+      pkgBreakdown.epss += breakdowns[j].epss;
+      pkgBreakdown.vector += breakdowns[j].vector;
+      pkgBreakdown.severity += breakdowns[j].severity;
+      pkgBreakdown.fix += breakdowns[j].fix;
+    }
+
+    cveList.sort(function(a, b) { return b.score - a.score; });
+    var topCve = cveList[0];
+    var riskDominator = topCve ? formatRiskDominator(topCve, topCve.severity, topCve.attackVector) : 'No CVEs';
+
     actions.push({
       name: dep.name, ver: dep.version, eco: dep.ecosystem,
       fix: bestFix, isDirect: dep.isDirect, parent: dep.parent,
       count: vulns.length, sev: sc, kev: kc, epss: mEpss,
-      cvss: mCvss, rce: netRce, threat: threat, roi: roi
+      cvss: mCvss, rce: netRce, pkgScore: pkgScore, baseRiskScore: baseRiskScore,
+      cves: cveList, fixCoverage: fixCoverage,
+      attackVectors: Object.keys(avSet),
+      breakdown: pkgBreakdown,
+      riskDominator: riskDominator
     });
+  }
+
+  totalRiskScore = Math.round(totalRiskScore * 100) / 100;
+
+  for (i = 0; i < actions.length; i++) {
+    actions[i].roi = totalRiskScore > 0 ? Math.round(actions[i].pkgScore / totalRiskScore * 1000) / 10 : 0;
   }
 
   actions.sort(function(a, b) {
     if (a.kev > 0 && b.kev === 0) return -1;
     if (b.kev > 0 && a.kev === 0) return 1;
-    if (b.threat !== a.threat) return b.threat - a.threat;
-    return b.epss - a.epss;
+    if (b.pkgScore !== a.pkgScore) return b.pkgScore - a.pkgScore;
+    if (b.epss !== a.epss) return b.epss - a.epss;
+    return a.count - b.count;
   });
 
-  return { actions: actions.slice(0, 5), totalRisk: totalRisk };
+  return {
+    actions: actions.slice(0, 5),
+    totalRiskScore: totalRiskScore,
+    totalVulnCount: totalVulnCount,
+    totalKevCount: totalKevCount,
+    totalCritCount: totalCritCount,
+    totalHighCount: totalHighCount,
+    totalPackages: vulnResults.length,
+    maxScorePerVuln: MAX_SCORE_PER_VULN
+  };
 }
 
 function renderRemediation(vulnResults) {
   var card = byId('remediationCard');
   var actionsEl = byId('remediationActions');
-  var summaryEl = byId('remediationSummary');
+  var summaryBox = byId('remediationSummaryBox');
   if (!card || !actionsEl) return;
 
   var rem = computeRemediation(vulnResults);
   if (rem.actions.length === 0) { card.classList.add('hidden'); return; }
   card.classList.remove('hidden');
 
-  var totalVulns = 0;
-  for (var i = 0; i < vulnResults.length; i++) totalVulns += vulnResults[i].vulnerabilities.length;
-  var topFix = 0, topRoi = 0;
-  for (i = 0; i < rem.actions.length; i++) { topFix += rem.actions[i].count; topRoi += rem.actions[i].roi; }
+  /* ── Quantified Summary ── */
+  var topFixCount = 0, topRoi = 0, topKev = 0, topCves = 0;
+  for (var i = 0; i < rem.actions.length; i++) {
+    topFixCount += rem.actions[i].count;
+    topRoi += rem.actions[i].roi;
+    topKev += rem.actions[i].kev;
+    topCves += rem.actions[i].cves.length;
+  }
 
-  summaryEl.textContent = 'Top ' + rem.actions.length + ' fixes address ' + topFix + ' of ' + totalVulns + ' vulnerabilities (' + Math.round(topRoi) + '% risk reduction)';
+  var sh = '';
+  sh += '<div style="font-size:0.85rem;color:var(--muted);margin-bottom:8px;">';
+  sh += 'Fixing <strong style="color:var(--text);">' + rem.actions.length + '</strong> packages resolves ';
+  sh += '<strong style="color:var(--text);">' + topFixCount + '</strong> of <strong style="color:var(--text);">' + rem.totalVulnCount + '</strong> vulnerabilities ';
+  sh += '(<strong style="color:var(--green);">' + Math.round(topRoi) + '% risk reduction</strong>)';
+  sh += '</div>';
+  sh += '<div class="remediation-summary-grid">';
+  sh += '<div class="remediation-summary-stat"><div class="val" style="color:var(--red);">' + rem.totalRiskScore.toFixed(1) + '</div><div class="lbl">Total Risk Score</div></div>';
+  sh += '<div class="remediation-summary-stat"><div class="val">' + rem.totalVulnCount + '</div><div class="lbl">Total CVEs</div></div>';
+  sh += '<div class="remediation-summary-stat"><div class="val" style="color:var(--orange);">' + rem.totalKevCount + '</div><div class="lbl">KEV (Exploited)</div></div>';
+  sh += '<div class="remediation-summary-stat"><div class="val" style="color:var(--red);">' + rem.totalCritCount + '</div><div class="lbl">Critical</div></div>';
+  sh += '<div class="remediation-summary-stat"><div class="val" style="color:var(--orange);">' + rem.totalHighCount + '</div><div class="lbl">High</div></div>';
+  sh += '<div class="remediation-summary-stat"><div class="val" style="color:var(--green);">' + rem.maxScorePerVuln + '</div><div class="lbl">Max Score/CVE</div></div>';
+  sh += '</div>';
+  if (summaryBox) summaryBox.innerHTML = sh;
 
+  /* ── Per-Action Detailed Cards ── */
   var html = '';
   for (i = 0; i < rem.actions.length; i++) {
     var a = rem.actions[i];
     var rank = i + 1;
-    var threatClass = a.threat >= 70 ? 'threat-critical' : a.threat >= 50 ? 'threat-high' : a.threat >= 30 ? 'threat-medium' : 'threat-low';
 
     html += '<div class="remediation-action">';
+
+    /* Header: rank, name, metrics */
     html += '<div class="remediation-action-header">';
     html += '<div style="display:flex;gap:12px;align-items:flex-start;">';
     html += '<span class="remediation-rank">' + rank + '</span>';
     html += '<div class="remediation-action-left">';
-    html += '<div class="remediation-action-pkg">' + esc(a.name) + '@' + esc(a.ver) + '</div>';
+    html += '<div class="remediation-action-pkg">' + esc(a.name) + '@' + esc(a.ver) + ' <span style="font-size:0.72rem;font-weight:400;color:var(--muted);background:rgba(136,192,208,0.12);padding:1px 6px;border-radius:4px;margin-left:6px;">' + esc(a.eco) + '</span></div>';
     if (a.fix) {
-      html += '<div class="remediation-action-upgrade">Upgrade to ' + esc(a.fix) + '</div>';
+      html += '<div class="remediation-action-upgrade">';
+      html += 'Fix version: <strong>' + esc(a.fix) + '</strong>';
+      html += ' (' + a.fixCoverage + '/' + a.count + ' CVEs patched)';
+      html += '</div>';
     } else {
-      html += '<div style="color:var(--muted);font-size:0.9rem;">No fix version available</div>';
+      html += '<div style="color:var(--muted);font-size:0.9rem;">No fix version available &mdash; consider removing or replacing</div>';
+    }
+    html += '<div class="remediation-latest-ver" id="rem-latest-' + rank + '" style="font-size:0.85rem;color:var(--muted);margin-top:2px;">';
+    html += '<span style="opacity:0.6;">Latest: </span><span class="rem-latest-val" style="color:var(--accent);">loading...</span>';
+    html += '</div>';
+    if (a.riskDominator) {
+      html += '<div class="remediation-risk-dominator" style="margin-top:6px;font-size:0.8rem;color:var(--muted);">';
+      html += '<span style="opacity:0.8;">Driven by: </span><strong style="color:var(--text);">' + esc(a.riskDominator) + '</strong>';
+      html += '</div>';
     }
     html += '</div></div>';
+
+    /* Right side: quantified metrics */
     html += '<div class="remediation-action-right">';
-    html += '<span class="remediation-threat ' + threatClass + '">Threat: ' + a.threat + '</span>';
-    html += '<span class="remediation-roi">ROI: -' + a.roi + '% risk</span>';
+    html += '<div class="remediation-metric metric-risk"><span class="m-val">' + a.pkgScore.toFixed(1) + '</span><span class="m-lbl">Risk Score</span></div>';
+    html += '<div class="remediation-metric metric-roi"><span class="m-val">' + a.roi + '%</span><span class="m-lbl">Risk Reduction</span></div>';
+    if (a.cvss > 0) html += '<div class="remediation-metric metric-cvss"><span class="m-val">' + a.cvss.toFixed(1) + '</span><span class="m-lbl">CVSS (max)</span></div>';
+    if (a.epss > 0) html += '<div class="remediation-metric metric-epss"><span class="m-val">' + (a.epss * 100).toFixed(1) + '%</span><span class="m-lbl">EPSS (max)</span></div>';
     html += '</div></div>';
 
     /* Badges */
     html += '<div class="remediation-badges">';
-    if (a.kev > 0) html += '<span class="badge badge-kev">' + a.kev + ' KEV</span>';
-    if (a.epss >= 0.1) html += '<span class="badge badge-critical">EPSS ' + (a.epss * 100).toFixed(0) + '%</span>';
+    if (a.kev > 0) html += '<span class="badge badge-kev">' + a.kev + ' CISA KEV</span>';
     if (a.rce) html += '<span class="badge badge-critical">Network RCE</span>';
     if (a.sev['CRITICAL']) html += '<span class="badge badge-critical">' + a.sev['CRITICAL'] + ' Critical</span>';
     if (a.sev['HIGH']) html += '<span class="badge badge-high">' + a.sev['HIGH'] + ' High</span>';
     if (a.sev['MEDIUM']) html += '<span class="badge badge-medium">' + a.sev['MEDIUM'] + ' Medium</span>';
     if (a.sev['LOW']) html += '<span class="badge badge-low">' + a.sev['LOW'] + ' Low</span>';
-    if (!a.isDirect && a.parent) html += '<span class="badge badge-unknown">via ' + esc(a.parent) + '</span>';
+    html += '<span class="badge" style="background:rgba(136,192,208,0.15);color:var(--accent);">Vectors: ' + a.attackVectors.join(', ') + '</span>';
+    if (!a.isDirect && a.parent) html += '<span class="badge badge-unknown">Transitive via ' + esc(a.parent) + '</span>';
+    if (a.isDirect) html += '<span class="badge" style="background:rgba(63,185,80,0.15);color:var(--green);">Direct dependency</span>';
     html += '</div>';
 
-    /* Reason */
-    html += '<div class="remediation-reason">';
-    if (a.fix) {
-      html += '<strong>Action:</strong> Update ' + esc(a.name) + ' from ' + esc(a.ver) + ' to ' + esc(a.fix) + '. ';
-    } else {
-      html += '<strong>Action:</strong> Review ' + esc(a.name) + '@' + esc(a.ver) + ' (no fix available). ';
+    /* Quantified Analysis */
+    html += '<div class="remediation-analysis"><dl>';
+
+    /* Base vs adjusted risk (when KEV boost applied) */
+    if (a.kev > 0 && a.baseRiskScore !== undefined && a.baseRiskScore > 0 && a.pkgScore > a.baseRiskScore) {
+      html += '<dt>Risk score</dt>';
+      html += '<dd>Base risk (max + dampened sum): <strong>' + a.baseRiskScore.toFixed(1) + '</strong>. ';
+      html += 'Adjusted with KEV multiplier for ROI alignment: <strong>' + a.pkgScore.toFixed(1) + '</strong>.</dd>';
     }
-    html += '<strong>Impact:</strong> Fixes ' + a.count + ' vulnerabilit' + (a.count === 1 ? 'y' : 'ies');
-    var parts = [];
-    if (a.kev > 0) parts.push(a.kev + ' actively exploited (KEV)');
-    if (a.epss >= 0.5) parts.push('EPSS: ' + (a.epss * 100).toFixed(0) + '% exploitation probability');
-    if (a.rce) parts.push('includes network-accessible RCE');
-    if (parts.length > 0) html += ', including ' + parts.join(', ');
-    html += '. ';
-    if (a.roi >= 1) html += 'This single fix reduces project risk by <strong>' + a.roi + '%</strong>.';
-    html += '</div>';
+
+    /* Score Breakdown */
+    html += '<dt>Score Breakdown (component contributions; base risk ' + (a.baseRiskScore != null ? a.baseRiskScore.toFixed(1) : a.pkgScore.toFixed(1)) + ')</dt>';
+    html += '<dd>';
+    var bk = a.breakdown;
+    var totalBk = bk.kev + bk.epss + bk.vector + bk.severity + bk.fix;
+    var pctDenom = totalBk > 0 ? totalBk : 1;
+    var bkParts = [];
+    if (bk.kev > 0) bkParts.push('KEV: ' + bk.kev.toFixed(1) + ' (' + Math.round(bk.kev / pctDenom * 100) + '%)');
+    if (bk.epss > 0) bkParts.push('EPSS: ' + bk.epss.toFixed(1) + ' (' + Math.round(bk.epss / pctDenom * 100) + '%)');
+    if (bk.vector > 0) bkParts.push('Attack Vector: ' + bk.vector.toFixed(1) + ' (' + Math.round(bk.vector / pctDenom * 100) + '%)');
+    if (bk.severity > 0) bkParts.push('Severity: ' + bk.severity.toFixed(1) + ' (' + Math.round(bk.severity / pctDenom * 100) + '%)');
+    if (bk.fix > 0) bkParts.push('Fix Available: ' + bk.fix.toFixed(1) + ' (' + Math.round(bk.fix / pctDenom * 100) + '%)');
+    html += bkParts.join(' &middot; ');
+    html += '</dd>';
+
+    /* Risk Reduction */
+    html += '<dt>Risk Reduction</dt>';
+    html += '<dd>Remediating ' + esc(a.name) + ' removes <strong>' + a.pkgScore.toFixed(1) + '</strong> of <strong>' + rem.totalRiskScore.toFixed(1) + '</strong> total risk points (<strong>' + a.roi + '%</strong>). ';
+    if (a.fix) {
+      html += 'Upgrading from ' + esc(a.ver) + ' to ' + esc(a.fix) + ' patches ' + a.fixCoverage + ' of ' + a.count + ' known vulnerabilities. ';
+      html += 'Latest registry version: <span id="rem-analysis-latest-' + rank + '" style="color:var(--accent);">resolving...</span>';
+    } else {
+      html += 'No fix is available. Evaluate alternative packages or apply compensating controls (WAF rules, network segmentation).';
+    }
+    html += '</dd>';
+
+    /* Threat Intelligence */
+    html += '<dt>Threat Intelligence</dt><dd>';
+    var ti = [];
+    if (a.kev > 0) ti.push(a.kev + ' CVE' + (a.kev > 1 ? 's' : '') + ' confirmed actively exploited (CISA KEV catalog)');
+    if (a.epss > 0) ti.push('Highest EPSS probability: ' + (a.epss * 100).toFixed(1) + '% chance of exploitation within 30 days');
+    if (a.rce) ti.push('Contains network-accessible Remote Code Execution (AV:N + C:H + I:H)');
+    if (ti.length === 0) ti.push('No active exploitation data available. Prioritization based on severity and attack vector analysis.');
+    html += ti.join('. ') + '.';
+    html += '</dd>';
+
+    /* CVE Detail Table */
+    if (a.cves.length > 0) {
+      html += '<dt>CVE Breakdown (' + a.cves.length + ' total)</dt><dd>';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:0.8rem;margin-top:4px;">';
+      html += '<tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:3px 8px 3px 0;color:var(--muted);">CVE</th>';
+      html += '<th style="text-align:center;padding:3px 8px;color:var(--muted);">Severity</th>';
+      html += '<th style="text-align:center;padding:3px 8px;color:var(--muted);">CVSS</th>';
+      html += '<th style="text-align:center;padding:3px 8px;color:var(--muted);">EPSS</th>';
+      html += '<th style="text-align:center;padding:3px 8px;color:var(--muted);">KEV</th>';
+      html += '<th style="text-align:center;padding:3px 8px;color:var(--muted);">Score</th>';
+      html += '<th style="text-align:left;padding:3px 0 3px 8px;color:var(--muted);">Fix</th></tr>';
+      for (var c = 0; c < a.cves.length; c++) {
+        var cve = a.cves[c];
+        var rowBg = c % 2 === 0 ? '' : 'background:rgba(136,192,208,0.04);';
+        html += '<tr style="' + rowBg + 'border-bottom:1px solid rgba(136,192,208,0.08);">';
+        html += '<td style="padding:4px 8px 4px 0;font-family:monospace;font-size:0.78rem;">' + esc(cve.id) + '</td>';
+        var sevColor = cve.severity === 'CRITICAL' ? 'var(--red)' : cve.severity === 'HIGH' ? 'var(--orange)' : cve.severity === 'MEDIUM' ? 'var(--yellow)' : 'var(--green)';
+        html += '<td style="text-align:center;padding:4px 8px;color:' + sevColor + ';">' + cve.severity + '</td>';
+        html += '<td style="text-align:center;padding:4px 8px;font-weight:600;">' + cve.cvss.toFixed(1) + '</td>';
+        html += '<td style="text-align:center;padding:4px 8px;">' + (cve.epss > 0 ? (cve.epss * 100).toFixed(1) + '%' : 'N/A') + '</td>';
+        html += '<td style="text-align:center;padding:4px 8px;">' + (cve.kev ? '<span style="color:var(--red);font-weight:700;">YES</span>' : 'No') + '</td>';
+        html += '<td style="text-align:center;padding:4px 8px;font-weight:700;">' + cve.score.toFixed(1) + '<span style="color:var(--muted);font-weight:400;">/' + rem.maxScorePerVuln + '</span></td>';
+        html += '<td style="padding:4px 0 4px 8px;">' + (cve.fix ? '<span style="color:var(--green);">' + esc(cve.fix) + '</span>' : '<span style="color:var(--muted);">None</span>') + '</td>';
+        html += '</tr>';
+      }
+      html += '</table>';
+      html += '</dd>';
+    }
+
+    html += '</dl></div>';
     html += '</div>';
   }
   actionsEl.innerHTML = html;
+
+  /* ── Async: fetch latest version for each package from registry ── */
+  for (i = 0; i < rem.actions.length; i++) {
+    (function(idx, action) {
+      var rank = idx + 1;
+      var url = '/api/package-info?ecosystem=' + encodeURIComponent(action.eco) + '&name=' + encodeURIComponent(action.name);
+      fetch(url).then(function(r) { return r.json(); }).then(function(data) {
+        var el = byId('rem-latest-' + rank);
+        if (!el) return;
+        var valEl = el.querySelector('.rem-latest-val');
+        if (!valEl) return;
+        if (data.latestVersion) {
+          var isBehind = data.latestVersion !== action.ver;
+          var majorsBehind = '';
+          if (isBehind) {
+            var curParts = action.ver.split('.').map(Number);
+            var latParts = data.latestVersion.split('.').map(Number);
+            var majDiff = (latParts[0] || 0) - (curParts[0] || 0);
+            var minDiff = (latParts[1] || 0) - (curParts[1] || 0);
+            var patDiff = (latParts[2] || 0) - (curParts[2] || 0);
+            if (majDiff > 0) majorsBehind = ' (' + majDiff + ' major' + (majDiff > 1 ? 's' : '') + ' behind)';
+            else if (minDiff > 0) majorsBehind = ' (' + minDiff + ' minor' + (minDiff > 1 ? 's' : '') + ' behind)';
+            else if (patDiff > 0) majorsBehind = ' (' + patDiff + ' patch' + (patDiff > 1 ? 'es' : '') + ' behind)';
+          }
+          valEl.innerHTML = '<strong>' + esc(data.latestVersion) + '</strong>';
+          if (isBehind) {
+            valEl.innerHTML += '<span style="color:var(--orange);font-size:0.78rem;margin-left:6px;">' + majorsBehind + '</span>';
+          } else {
+            valEl.innerHTML += '<span style="color:var(--green);font-size:0.78rem;margin-left:6px;">(up to date)</span>';
+          }
+          /* Also update analysis section */
+          var analysisEl = byId('rem-analysis-latest-' + rank);
+          if (analysisEl) {
+            analysisEl.innerHTML = '<strong>' + esc(data.latestVersion) + '</strong>';
+            if (isBehind) {
+              analysisEl.innerHTML += '<span style="color:var(--orange);">' + majorsBehind + '</span>';
+            }
+          }
+        } else {
+          valEl.textContent = 'N/A';
+        }
+      }).catch(function() {
+        var el = byId('rem-latest-' + rank);
+        if (el) {
+          var valEl = el.querySelector('.rem-latest-val');
+          if (valEl) valEl.textContent = 'unavailable';
+        }
+      });
+    })(i, rem.actions[i]);
+  }
 }
 
 function renderResults(report) {

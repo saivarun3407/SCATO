@@ -1,111 +1,117 @@
 // ═══════════════════════════════════════════════════════════════
-// High-Impact Remediation Engine
-// Cuts through vulnerability noise to give developers a short,
-// prioritized action list with the highest ROI for risk reduction.
+// Prioritized Remediation Engine
+// Produces a quantified, ranked remediation plan by scoring every
+// vulnerability across five weighted dimensions and aggregating
+// per-package risk.  Addresses "sum of lows" fallacy and aligns
+// ROI % with ranking (KEV multiplier).  See docs/REMEDIATION_SCORING.md.
 //
-// Priority weighting (informed by OWASP Risk Rating):
-//   1. CISA KEV — actively exploited in the wild (highest weight)
-//   2. EPSS — probability of exploitation in next 30 days
-//   3. CVSS vector — network-accessible RCEs > local exploits
-//   4. Severity — CRITICAL > HIGH > MEDIUM > LOW
-//   5. Fix availability — fixable vulns get priority over unfixable
+// Per-CVE weights (sum = 100): KEV 30, EPSS 20, Vector 15, Severity 30, Fix 5.
+// Severity is exponential: CRITICAL=30, HIGH=15, MED=4.5, LOW=0.9, UNK=0.3.
 //
-// ROI = (risk_removed / total_risk) per single library upgrade
+// Aggregation: Package base risk = max(CVE score) + sum(rest) × DAMPENER (0.1).
+// Adjusted risk = base × (KEV_MULTIPLIER if any KEV else 1). ROI uses adjusted.
 // ═══════════════════════════════════════════════════════════════
 
 import type { ScanResult, Vulnerability, Severity } from "../../types.js";
 
 // ─── Output types ───
 
-export interface RemediationAction {
-  /** Library to upgrade */
-  packageName: string;
-  currentVersion: string;
-  ecosystem: string;
-  /** Recommended version (best fix_version across all vulns) */
-  fixVersion: string | null;
-  /** Is it a direct dependency? */
-  isDirect: boolean;
-  /** Parent package (for transitive deps) */
-  parent?: string;
-
-  /** Number of vulnerabilities fixed by this upgrade */
-  vulnCount: number;
-  /** Breakdown by severity */
-  severityCounts: Record<string, number>;
-  /** Number of KEV (actively exploited) vulns fixed */
-  kevCount: number;
-  /** Highest EPSS score among the vulns */
-  maxEpss: number;
-  /** Highest CVSS score among the vulns */
-  maxCvss: number;
-  /** Whether any vuln is network-accessible RCE */
-  hasNetworkRce: boolean;
-
-  /** Composite threat score for this package (0-100) */
-  threatScore: number;
-  /** Estimated risk reduction as percentage of total project risk */
-  riskReductionPct: number;
-
-  /** Individual CVEs fixed */
-  cves: RemediationCve[];
-
-  /** Developer-friendly explanation */
-  reason: string;
+export interface ScoreBreakdown {
+  kev: number;
+  epss: number;
+  vector: number;
+  severity: number;
+  fix: number;
 }
 
 export interface RemediationCve {
   id: string;
   severity: Severity;
-  score?: number;
+  cvss: number;
+  epss: number;
   isKev: boolean;
-  epss?: number;
+  score: number;
+  breakdown: ScoreBreakdown;
+  attackVector: string;
+  fixVersion: string | null;
   summary: string;
-  fixVersion?: string;
+}
+
+export interface RemediationAction {
+  packageName: string;
+  currentVersion: string;
+  ecosystem: string;
+  fixVersion: string | null;
+  /** Latest version available on the registry (populated async) */
+  latestVersion?: string;
+  isDirect: boolean;
+  parent?: string;
+
+  vulnCount: number;
+  fixCoverage: number;           // how many CVEs have a fix
+  severityCounts: Record<string, number>;
+  kevCount: number;
+  maxEpss: number;
+  maxCvss: number;
+  hasNetworkRce: boolean;
+  attackVectors: string[];
+
+  /** Adjusted risk score (base risk × KEV multiplier if applicable); used for ROI and ranking */
+  riskScore: number;
+  /** Base risk before KEV multiplier (max + dampened sum of remaining CVE scores) */
+  baseRiskScore: number;
+  /** Percentage of total project risk this package represents (based on adjusted risk) */
+  riskReductionPct: number;
+  /** Score breakdown aggregated across all CVEs */
+  breakdown: ScoreBreakdown;
+  /** One-line "why this ranks here" from top CVE, e.g. "1 Critical RCE (AV:N)" */
+  riskDominator: string;
+
+  cves: RemediationCve[];
 }
 
 export interface RemediationReport {
-  /** Top N prioritized actions */
   actions: RemediationAction[];
-  /** Total project risk score (for ROI calculation) */
-  totalProjectRisk: number;
-  /** Total vulnerabilities across all results */
-  totalVulns: number;
-  /** How many vulns the top actions would fix */
-  topActionsFixCount: number;
-  /** Risk reduction if all top actions are taken */
-  topActionsRiskReduction: number;
-  /** Summary sentence */
+  totalRiskScore: number;
+  totalVulnCount: number;
+  totalKevCount: number;
+  totalCriticalCount: number;
+  totalHighCount: number;
+  totalPackages: number;
+  maxScorePerCve: number;
   summary: string;
 }
 
 // ─── Scoring constants ───
 
-const WEIGHT_KEV = 40;         // KEV is the highest signal
-const WEIGHT_EPSS = 25;        // EPSS probability
-const WEIGHT_CVSS_VECTOR = 15; // Attack vector analysis
-const WEIGHT_SEVERITY = 15;    // Raw severity
-const WEIGHT_FIX_AVAILABLE = 5; // Bonus for fixable vulns
+const WEIGHT_KEV = 30;
+const WEIGHT_EPSS = 20;
+const WEIGHT_CVSS_VECTOR = 15;
+const WEIGHT_SEVERITY = 30;
+const WEIGHT_FIX_AVAILABLE = 5;
+const MAX_SCORE_PER_CVE = WEIGHT_KEV + WEIGHT_EPSS + WEIGHT_CVSS_VECTOR + WEIGHT_SEVERITY + WEIGHT_FIX_AVAILABLE;
 
+/** Dampener for aggregation: prevents "sum of lows" from eclipsing a single Critical. Configurable 0.05–0.2. */
+const DAMPENER = 0.1;
+
+/** KEV multiplier for ROI alignment: packages with KEV show higher risk reduction % so ranking matches impact. Capped 2–3×. */
+const KEV_MULTIPLIER = 2.5;
+
+/** Exponential severity: Critical ~33× Low to reflect cascade risk (FAIR-style). */
 const SEVERITY_SCORES: Record<string, number> = {
   CRITICAL: 1.0,
-  HIGH: 0.75,
-  MEDIUM: 0.45,
-  LOW: 0.2,
-  UNKNOWN: 0.1,
+  HIGH: 0.5,
+  MEDIUM: 0.15,
+  LOW: 0.03,
+  UNKNOWN: 0.01,
 };
 
 // ─── Core algorithm ───
 
-/**
- * Analyze scan results and produce a prioritized remediation report.
- * Groups vulnerabilities by library, scores each, and returns top N actions.
- */
 export function computeRemediation(
   results: ScanResult[],
   topN: number = 5
 ): RemediationReport {
-  // Step 1: Filter to results that have vulnerabilities
   const vulnResults = results.filter(
     (r) => r.vulnerabilities && r.vulnerabilities.length > 0
   );
@@ -113,109 +119,111 @@ export function computeRemediation(
   if (vulnResults.length === 0) {
     return {
       actions: [],
-      totalProjectRisk: 0,
-      totalVulns: 0,
-      topActionsFixCount: 0,
-      topActionsRiskReduction: 0,
-      summary: "No vulnerabilities found — your project is clean.",
+      totalRiskScore: 0,
+      totalVulnCount: 0,
+      totalKevCount: 0,
+      totalCriticalCount: 0,
+      totalHighCount: 0,
+      totalPackages: results.length,
+      maxScorePerCve: MAX_SCORE_PER_CVE,
+      summary: "No vulnerabilities detected. Project is clean.",
     };
   }
 
-  // Step 2: Calculate total project risk (sum of all vuln threat scores)
-  let totalProjectRisk = 0;
-  const allVulnScores: number[] = [];
+  let totalRiskScore = 0;
+  let totalVulnCount = 0;
+  let totalKevCount = 0;
+  let totalCriticalCount = 0;
+  let totalHighCount = 0;
 
-  for (const result of vulnResults) {
-    for (const vuln of result.vulnerabilities) {
-      const score = scoreVulnerability(vuln);
-      totalProjectRisk += score;
-      allVulnScores.push(score);
-    }
-  }
-
-  // Step 3: Score each library (package) by aggregating its vuln scores
   const actions: RemediationAction[] = [];
 
   for (const result of vulnResults) {
     const dep = result.dependency;
     const vulns = result.vulnerabilities;
 
-    // Aggregate metrics
-    let packageThreatScore = 0;
     let kevCount = 0;
     let maxEpss = 0;
     let maxCvss = 0;
     let hasNetworkRce = false;
+    let fixCoverage = 0;
     const sevCounts: Record<string, number> = {};
     const cves: RemediationCve[] = [];
+    const pkgBreakdown: ScoreBreakdown = { kev: 0, epss: 0, vector: 0, severity: 0, fix: 0 };
+    const avSet = new Set<string>();
     let bestFixVersion: string | null = null;
-    let bestFixSemver = "";
+    const cveScores: number[] = [];
 
     for (const vuln of vulns) {
-      const vulnScore = scoreVulnerability(vuln);
-      packageThreatScore += vulnScore;
+      const scored = scoreVulnerability(vuln);
+      cveScores.push(scored.score);
 
-      // KEV
-      if (vuln.isKnownExploited) kevCount++;
+      pkgBreakdown.kev += scored.breakdown.kev;
+      pkgBreakdown.epss += scored.breakdown.epss;
+      pkgBreakdown.vector += scored.breakdown.vector;
+      pkgBreakdown.severity += scored.breakdown.severity;
+      pkgBreakdown.fix += scored.breakdown.fix;
 
-      // EPSS
-      if (vuln.epssScore && vuln.epssScore > maxEpss) maxEpss = vuln.epssScore;
-
-      // CVSS
-      if (vuln.score && vuln.score > maxCvss) maxCvss = vuln.score;
-
-      // Network RCE check
+      if (vuln.isKnownExploited) { kevCount++; totalKevCount++; }
+      if ((vuln.epssScore || 0) > maxEpss) maxEpss = vuln.epssScore || 0;
+      if ((vuln.score || 0) > maxCvss) maxCvss = vuln.score || 0;
       if (isNetworkRce(vuln)) hasNetworkRce = true;
 
-      // Severity counts
       const sev = (vuln.severity || "UNKNOWN").toUpperCase();
       sevCounts[sev] = (sevCounts[sev] || 0) + 1;
+      if (sev === "CRITICAL") totalCriticalCount++;
+      if (sev === "HIGH") totalHighCount++;
 
-      // Best fix version (highest)
       if (vuln.fixed_version) {
-        if (!bestFixVersion || compareVersions(vuln.fixed_version, bestFixSemver) > 0) {
+        fixCoverage++;
+        if (!bestFixVersion || compareVersions(vuln.fixed_version, bestFixVersion) > 0) {
           bestFixVersion = vuln.fixed_version;
-          bestFixSemver = vuln.fixed_version;
         }
       }
+
+      const av = getAttackVector(vuln);
+      avSet.add(av);
 
       cves.push({
         id: vuln.id,
         severity: vuln.severity,
-        score: vuln.score,
+        cvss: vuln.score || 0,
+        epss: vuln.epssScore || 0,
         isKev: !!vuln.isKnownExploited,
-        epss: vuln.epssScore,
+        score: scored.score,
+        breakdown: scored.breakdown,
+        attackVector: av,
+        fixVersion: vuln.fixed_version || null,
         summary: vuln.summary || "",
-        fixVersion: vuln.fixed_version,
       });
+
+      totalVulnCount++;
     }
 
-    // ROI: what percentage of total risk does fixing this library remove?
-    const riskReductionPct =
-      totalProjectRisk > 0
-        ? Math.round((packageThreatScore / totalProjectRisk) * 1000) / 10
-        : 0;
+    // Aggregation: max + dampened sum (prevents "sum of lows" eclipsing single Critical)
+    cveScores.sort((a, b) => b - a);
+    const maxScore = cveScores[0] ?? 0;
+    const restSum = cveScores.slice(1).reduce((acc, val) => acc + val, 0);
+    const baseRiskScore = round(maxScore + restSum * DAMPENER);
+    const hasKEV = kevCount > 0;
+    const adjustedRiskScore = round(hasKEV ? baseRiskScore * KEV_MULTIPLIER : baseRiskScore);
+    totalRiskScore += adjustedRiskScore;
 
-    // Normalize threat score to 0-100
-    const maxPossibleScore = vulns.length * 100;
-    const normalizedThreat = Math.min(
-      100,
-      Math.round((packageThreatScore / Math.max(maxPossibleScore, 1)) * 100)
-    );
+    // Sort CVEs by score descending (top CVE first for riskDominator)
+    cves.sort((a, b) => b.score - a.score);
 
-    // Generate developer-friendly reason
-    const reason = generateReason(
-      dep.name,
-      dep.version,
-      bestFixVersion,
-      vulns.length,
-      kevCount,
-      maxEpss,
-      maxCvss,
-      hasNetworkRce,
-      sevCounts,
-      riskReductionPct
-    );
+    // Round for clean output
+    pkgBreakdown.kev = round(pkgBreakdown.kev);
+    pkgBreakdown.epss = round(pkgBreakdown.epss);
+    pkgBreakdown.vector = round(pkgBreakdown.vector);
+    pkgBreakdown.severity = round(pkgBreakdown.severity);
+    pkgBreakdown.fix = round(pkgBreakdown.fix);
+
+    // One-line "why this ranks here" from top CVE
+    const topCve = cves[0];
+    const riskDominator = topCve
+      ? formatRiskDominator(topCve, sevCounts)
+      : "No CVEs";
 
     actions.push({
       packageName: dep.name,
@@ -225,142 +233,131 @@ export function computeRemediation(
       isDirect: dep.isDirect,
       parent: dep.parent,
       vulnCount: vulns.length,
+      fixCoverage,
       severityCounts: sevCounts,
       kevCount,
       maxEpss,
       maxCvss,
       hasNetworkRce,
-      threatScore: normalizedThreat,
-      riskReductionPct,
+      attackVectors: Array.from(avSet),
+      riskScore: adjustedRiskScore,
+      baseRiskScore,
+      riskReductionPct: 0, // calculated after totalRiskScore known
+      breakdown: pkgBreakdown,
+      riskDominator,
       cves,
-      reason,
     });
   }
 
-  // Step 4: Sort by threat score descending (highest ROI first)
+  totalRiskScore = round(totalRiskScore);
+
+  // Calculate ROI for each action (using adjusted risk so ROI aligns with ranking)
+  for (const action of actions) {
+    action.riskReductionPct =
+      totalRiskScore > 0
+        ? round((action.riskScore / totalRiskScore) * 100, 1)
+        : 0;
+  }
+
+  // Sort: KEV first, then adjusted risk score, then EPSS, then fewer CVEs = better
   actions.sort((a, b) => {
-    // KEV-bearing packages always come first
     if (a.kevCount > 0 && b.kevCount === 0) return -1;
     if (b.kevCount > 0 && a.kevCount === 0) return 1;
-    // Then by threat score
-    if (b.threatScore !== a.threatScore) return b.threatScore - a.threatScore;
-    // Tie-break by EPSS
-    return b.maxEpss - a.maxEpss;
+    if (b.riskScore !== a.riskScore) return b.riskScore - a.riskScore;
+    if (b.maxEpss !== a.maxEpss) return b.maxEpss - a.maxEpss;
+    return a.vulnCount - b.vulnCount; // fewer CVEs = higher priority (simpler fix)
   });
 
-  // Step 5: Take top N
   const topActions = actions.slice(0, topN);
-  const topFixCount = topActions.reduce((sum, a) => sum + a.vulnCount, 0);
-  const topRiskReduction = topActions.reduce(
-    (sum, a) => sum + a.riskReductionPct,
-    0
-  );
-  const totalVulns = vulnResults.reduce(
-    (sum, r) => sum + r.vulnerabilities.length,
-    0
-  );
+  const topFixCount = topActions.reduce((s, a) => s + a.vulnCount, 0);
+  const topRiskReduction = topActions.reduce((s, a) => s + a.riskReductionPct, 0);
 
-  // Generate summary
-  const summary = generateSummary(
-    topActions,
-    topFixCount,
-    totalVulns,
-    topRiskReduction
-  );
+  const summary = generateSummary(topActions, topFixCount, totalVulnCount, topRiskReduction, totalRiskScore, totalKevCount);
 
   return {
     actions: topActions,
-    totalProjectRisk: Math.round(totalProjectRisk),
-    totalVulns,
-    topActionsFixCount: topFixCount,
-    topActionsRiskReduction: Math.round(topRiskReduction * 10) / 10,
+    totalRiskScore,
+    totalVulnCount,
+    totalKevCount,
+    totalCriticalCount,
+    totalHighCount,
+    totalPackages: results.length,
+    maxScorePerCve: MAX_SCORE_PER_CVE,
     summary,
   };
 }
 
 // ─── Vulnerability scoring ───
 
-/** Score a single vulnerability (0-100 scale) */
-function scoreVulnerability(vuln: Vulnerability): number {
-  let score = 0;
+function scoreVulnerability(vuln: Vulnerability): { score: number; breakdown: ScoreBreakdown } {
+  const breakdown: ScoreBreakdown = { kev: 0, epss: 0, vector: 0, severity: 0, fix: 0 };
 
-  // 1. KEV: 40 points if actively exploited
-  if (vuln.isKnownExploited) {
-    score += WEIGHT_KEV;
-  }
+  if (vuln.isKnownExploited) breakdown.kev = WEIGHT_KEV;
+  breakdown.epss = round((vuln.epssScore || 0) * WEIGHT_EPSS);
 
-  // 2. EPSS: up to 25 points based on exploitation probability
-  const epss = vuln.epssScore || 0;
-  score += epss * WEIGHT_EPSS;
+  const vectorResult = analyzeVector(vuln);
+  breakdown.vector = round(vectorResult * WEIGHT_CVSS_VECTOR);
 
-  // 3. CVSS Vector analysis: up to 15 points
-  score += analyzeVector(vuln) * WEIGHT_CVSS_VECTOR;
-
-  // 4. Severity: up to 15 points
   const sevKey = (vuln.severity || "UNKNOWN").toUpperCase();
-  score += (SEVERITY_SCORES[sevKey] || 0.1) * WEIGHT_SEVERITY;
+  breakdown.severity = round((SEVERITY_SCORES[sevKey] || 0.1) * WEIGHT_SEVERITY);
 
-  // 5. Fix available: 5 bonus points (actionable = higher ROI)
-  if (vuln.fixed_version) {
-    score += WEIGHT_FIX_AVAILABLE;
-  }
+  if (vuln.fixed_version) breakdown.fix = WEIGHT_FIX_AVAILABLE;
 
-  return score;
+  const score = round(breakdown.kev + breakdown.epss + breakdown.vector + breakdown.severity + breakdown.fix);
+  return { score, breakdown };
 }
 
-/** Analyze CVSS vector string for attack characteristics (0.0-1.0) */
 function analyzeVector(vuln: Vulnerability): number {
   const vector = vuln.cvssVector || "";
-  let vectorScore = 0;
+  let s = 0;
 
-  // Attack Vector: Network (1.0) > Adjacent (0.6) > Local (0.3) > Physical (0.1)
-  if (vector.includes("AV:N")) vectorScore += 0.4;
-  else if (vector.includes("AV:A")) vectorScore += 0.24;
-  else if (vector.includes("AV:L")) vectorScore += 0.12;
-  else if (vector.includes("AV:P")) vectorScore += 0.04;
+  if (vector.includes("AV:N")) s += 0.4;
+  else if (vector.includes("AV:A")) s += 0.24;
+  else if (vector.includes("AV:L")) s += 0.12;
+  else if (vector.includes("AV:P")) s += 0.04;
   else {
-    // No vector info: estimate from CVSS score
     const cvss = vuln.score || 0;
-    vectorScore += cvss >= 9.0 ? 0.3 : cvss >= 7.0 ? 0.2 : 0.1;
+    s += cvss >= 9.0 ? 0.3 : cvss >= 7.0 ? 0.2 : 0.1;
   }
 
-  // Attack Complexity: Low (0.3) > High (0.1)
-  if (vector.includes("AC:L")) vectorScore += 0.3;
-  else if (vector.includes("AC:H")) vectorScore += 0.1;
-  else vectorScore += 0.15;
+  if (vector.includes("AC:L")) s += 0.3;
+  else if (vector.includes("AC:H")) s += 0.1;
+  else s += 0.15;
 
-  // User Interaction: None (0.2) > Required (0.05)
-  if (vector.includes("UI:N")) vectorScore += 0.2;
-  else if (vector.includes("UI:R")) vectorScore += 0.05;
-  else vectorScore += 0.1;
+  if (vector.includes("UI:N")) s += 0.2;
+  else if (vector.includes("UI:R")) s += 0.05;
+  else s += 0.1;
 
-  // Scope: Changed (0.1) > Unchanged (0)
-  if (vector.includes("S:C")) vectorScore += 0.1;
+  if (vector.includes("S:C")) s += 0.1;
 
-  return Math.min(1.0, vectorScore);
+  return Math.min(1.0, s);
 }
 
-/** Check if vulnerability is a network-accessible RCE */
+function getAttackVector(vuln: Vulnerability): string {
+  const vec = vuln.cvssVector || "";
+  if (vec.includes("AV:N")) return "Network";
+  if (vec.includes("AV:A")) return "Adjacent";
+  if (vec.includes("AV:L")) return "Local";
+  if (vec.includes("AV:P")) return "Physical";
+  return "Unknown";
+}
+
 function isNetworkRce(vuln: Vulnerability): boolean {
   const vector = vuln.cvssVector || "";
-  const isNetwork = vector.includes("AV:N");
-  const isHighImpact =
-    vector.includes("C:H") && vector.includes("I:H") && vector.includes("A:H");
+  if (!vector.includes("AV:N")) return false;
+  const highImpact = vector.includes("C:H") && vector.includes("I:H");
   const cwes = vuln.cwes || [];
-  const isRceCwe =
-    cwes.some(
-      (c) =>
-        c.includes("CWE-94") ||  // Code Injection
-        c.includes("CWE-78") ||  // OS Command Injection
-        c.includes("CWE-502") || // Deserialization
-        c.includes("CWE-787") || // OOB Write
-        c.includes("CWE-119")    // Buffer Overflow
-    );
-
-  return isNetwork && (isHighImpact || isRceCwe);
+  const isRceCwe = cwes.some(
+    (c) =>
+      c.includes("CWE-94") ||
+      c.includes("CWE-78") ||
+      c.includes("CWE-502") ||
+      c.includes("CWE-787") ||
+      c.includes("CWE-119")
+  );
+  return highImpact || isRceCwe;
 }
 
-/** Simple semver-ish comparison (returns >0 if a > b) */
 function compareVersions(a: string, b: string): number {
   const pa = a.split(".").map(Number);
   const pb = b.split(".").map(Number);
@@ -372,92 +369,41 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-// ─── Developer-friendly output ───
-
-function generateReason(
-  name: string,
-  currentVersion: string,
-  fixVersion: string | null,
-  vulnCount: number,
-  kevCount: number,
-  maxEpss: number,
-  maxCvss: number,
-  hasNetworkRce: boolean,
-  sevCounts: Record<string, number>,
-  riskReductionPct: number
-): string {
-  const parts: string[] = [];
-
-  // Action line
-  if (fixVersion) {
-    parts.push(`Update ${name} from ${currentVersion} to ${fixVersion}.`);
-  } else {
-    parts.push(`Review ${name}@${currentVersion} — no fix version available yet.`);
-  }
-
-  // What it fixes
-  const sevParts: string[] = [];
-  if (sevCounts["CRITICAL"]) sevParts.push(`${sevCounts["CRITICAL"]} Critical`);
-  if (sevCounts["HIGH"]) sevParts.push(`${sevCounts["HIGH"]} High`);
-  if (sevCounts["MEDIUM"]) sevParts.push(`${sevCounts["MEDIUM"]} Medium`);
-  if (sevCounts["LOW"]) sevParts.push(`${sevCounts["LOW"]} Low`);
-
-  parts.push(
-    `This fixes ${vulnCount} vulnerabilit${vulnCount === 1 ? "y" : "ies"} (${sevParts.join(", ")}).`
-  );
-
-  // Why it's urgent
-  const urgency: string[] = [];
-  if (kevCount > 0) {
-    urgency.push(
-      `${kevCount} ${kevCount === 1 ? "is" : "are"} actively exploited in the wild (CISA KEV)`
-    );
-  }
-  if (maxEpss >= 0.5) {
-    urgency.push(
-      `EPSS predicts ${(maxEpss * 100).toFixed(0)}% chance of exploitation in 30 days`
-    );
-  }
-  if (hasNetworkRce) {
-    urgency.push("includes a network-accessible Remote Code Execution");
-  }
-  if (urgency.length > 0) {
-    parts.push("Why: " + urgency.join("; ") + ".");
-  }
-
-  // ROI
-  if (riskReductionPct >= 1) {
-    parts.push(
-      `This single update reduces your project risk by ${riskReductionPct}%.`
-    );
-  }
-
-  return parts.join(" ");
+function round(n: number, decimals = 2): number {
+  const f = Math.pow(10, decimals);
+  return Math.round(n * f) / f;
 }
+
+/** One-line "why this ranks here" from top CVE, e.g. "1 Critical RCE (AV:N)" */
+function formatRiskDominator(topCve: RemediationCve, _sevCounts: Record<string, number>): string {
+  const sev = (topCve.severity || "UNKNOWN").toString().toUpperCase();
+  const av = topCve.attackVector || "Unknown";
+  const rce = topCve.attackVector === "Network" && (topCve.cvss >= 9 || sev === "CRITICAL" || sev === "HIGH") ? " RCE" : "";
+  return `1 ${sev}${rce} (${av})`;
+}
+
+// ─── Summary generation ───
 
 function generateSummary(
   topActions: RemediationAction[],
   topFixCount: number,
   totalVulns: number,
-  topRiskReduction: number
+  topRiskReduction: number,
+  totalRiskScore: number,
+  totalKevCount: number
 ): string {
-  if (topActions.length === 0) {
-    return "No actionable remediations found.";
+  if (topActions.length === 0) return "No actionable remediations identified.";
+
+  let summary = `Fixing ${topActions.length} packages resolves ${topFixCount} of ${totalVulns} vulnerabilities`;
+  summary += ` (${Math.round(topRiskReduction)}% of ${totalRiskScore} total risk points).`;
+
+  if (totalKevCount > 0) {
+    summary += ` ${totalKevCount} CVE${totalKevCount > 1 ? "s" : ""} confirmed actively exploited (CISA KEV).`;
   }
 
-  const kevActions = topActions.filter((a) => a.kevCount > 0);
-  const fixableActions = topActions.filter((a) => a.fixVersion);
-
-  let summary = `Top ${topActions.length} fixes address ${topFixCount} of ${totalVulns} vulnerabilities`;
-  summary += ` (${Math.round(topRiskReduction)}% risk reduction).`;
-
-  if (kevActions.length > 0) {
-    const totalKev = kevActions.reduce((s, a) => s + a.kevCount, 0);
-    summary += ` ${totalKev} actively exploited (KEV) vulnerabilit${totalKev === 1 ? "y" : "ies"} included.`;
-  }
-
-  if (fixableActions.length > 0) {
-    summary += ` ${fixableActions.length} of ${topActions.length} have fix versions available.`;
+  const fixable = topActions.filter((a) => a.fixVersion).length;
+  if (fixable > 0) {
+    summary += ` ${fixable}/${topActions.length} have fix versions available.`;
   }
 
   return summary;
