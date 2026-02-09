@@ -184,6 +184,27 @@ export function getDashboardHTML(): string {
   .risk-bar { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
   .risk-label { font-size: 1.2rem; font-weight: 700; min-width: 60px; text-align: right; }
 
+  /* Remediation Card */
+  .remediation-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .remediation-header h3 { margin: 0; }
+  .remediation-summary { font-size: 0.85rem; color: var(--muted); max-width: 500px; }
+  .remediation-action { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; transition: border-color 0.2s; }
+  .remediation-action:hover { border-color: var(--accent); }
+  .remediation-action-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  .remediation-action-left { flex: 1; min-width: 200px; }
+  .remediation-action-pkg { font-weight: 700; font-size: 1rem; }
+  .remediation-action-upgrade { color: var(--green); font-size: 0.9rem; margin-top: 2px; }
+  .remediation-action-right { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .remediation-threat { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 700; }
+  .threat-critical { background: rgba(248,81,73,0.2); color: var(--red); }
+  .threat-high { background: rgba(255,166,87,0.2); color: var(--orange); }
+  .threat-medium { background: rgba(255,215,0,0.2); color: var(--yellow); }
+  .threat-low { background: rgba(63,185,80,0.2); color: var(--green); }
+  .remediation-roi { display: inline-flex; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; background: rgba(136,192,208,0.15); color: var(--accent); }
+  .remediation-reason { margin-top: 10px; font-size: 0.88rem; color: var(--text); line-height: 1.5; }
+  .remediation-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .remediation-rank { width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.85rem; background: var(--accent); color: var(--bg-dark); flex-shrink: 0; }
+
   /* Hidden */
   .hidden { display: none !important; }
 
@@ -248,6 +269,15 @@ export function getDashboardHTML(): string {
           <div class="risk-bar-bg"><div class="risk-bar" id="riskBar"></div></div>
           <div class="risk-label" id="riskLabel">0</div>
         </div>
+      </div>
+
+      <!-- High-Impact Remediation -->
+      <div class="card hidden" id="remediationCard">
+        <div class="remediation-header">
+          <h3>High-Impact Remediation</h3>
+          <span class="remediation-summary" id="remediationSummary"></span>
+        </div>
+        <div id="remediationActions"></div>
       </div>
 
       <!-- Export buttons -->
@@ -1074,6 +1104,155 @@ function renderDepTree() {
 /* renderDepTree is global */
 
 /* ── Render results ── */
+/* ── High-Impact Remediation engine (client-side) ── */
+function computeRemediation(vulnResults) {
+  var WEIGHT_KEV = 40, WEIGHT_EPSS = 25, WEIGHT_VECTOR = 15, WEIGHT_SEV = 15, WEIGHT_FIX = 5;
+  var SEV_SCORE = { CRITICAL: 1.0, HIGH: 0.75, MEDIUM: 0.45, LOW: 0.2, UNKNOWN: 0.1 };
+
+  function scoreVuln(v) {
+    var s = 0;
+    if (v.isKnownExploited) s += WEIGHT_KEV;
+    s += (v.epssScore || 0) * WEIGHT_EPSS;
+    /* Vector analysis */
+    var vec = v.cvssVector || '';
+    var vs = 0;
+    if (vec.indexOf('AV:N') !== -1) vs += 0.4; else if (vec.indexOf('AV:A') !== -1) vs += 0.24; else vs += 0.15;
+    if (vec.indexOf('AC:L') !== -1) vs += 0.3; else vs += 0.1;
+    if (vec.indexOf('UI:N') !== -1) vs += 0.2; else vs += 0.05;
+    if (vec.indexOf('S:C') !== -1) vs += 0.1;
+    s += Math.min(1.0, vs) * WEIGHT_VECTOR;
+    var sevKey = (v.severity || 'UNKNOWN').toUpperCase();
+    s += (SEV_SCORE[sevKey] || 0.1) * WEIGHT_SEV;
+    if (v.fixed_version) s += WEIGHT_FIX;
+    return s;
+  }
+
+  function isNetworkRce(v) {
+    var vec = v.cvssVector || '';
+    if (vec.indexOf('AV:N') === -1) return false;
+    var highImpact = vec.indexOf('C:H') !== -1 && vec.indexOf('I:H') !== -1;
+    return highImpact;
+  }
+
+  var totalRisk = 0;
+  for (var i = 0; i < vulnResults.length; i++) {
+    for (var j = 0; j < vulnResults[i].vulnerabilities.length; j++) {
+      totalRisk += scoreVuln(vulnResults[i].vulnerabilities[j]);
+    }
+  }
+
+  var actions = [];
+  for (i = 0; i < vulnResults.length; i++) {
+    var res = vulnResults[i];
+    var dep = res.dependency;
+    var vulns = res.vulnerabilities;
+    var pkgScore = 0, kc = 0, mEpss = 0, mCvss = 0, netRce = false;
+    var sc = {};
+    var bestFix = null;
+    for (j = 0; j < vulns.length; j++) {
+      var v = vulns[j];
+      pkgScore += scoreVuln(v);
+      if (v.isKnownExploited) kc++;
+      if ((v.epssScore || 0) > mEpss) mEpss = v.epssScore || 0;
+      if ((v.score || 0) > mCvss) mCvss = v.score || 0;
+      if (isNetworkRce(v)) netRce = true;
+      var sv = (v.severity || 'UNKNOWN').toUpperCase();
+      sc[sv] = (sc[sv] || 0) + 1;
+      if (v.fixed_version) bestFix = v.fixed_version;
+    }
+    var roi = totalRisk > 0 ? Math.round(pkgScore / totalRisk * 1000) / 10 : 0;
+    var threat = Math.min(100, Math.round(pkgScore / Math.max(vulns.length, 1)));
+    actions.push({
+      name: dep.name, ver: dep.version, eco: dep.ecosystem,
+      fix: bestFix, isDirect: dep.isDirect, parent: dep.parent,
+      count: vulns.length, sev: sc, kev: kc, epss: mEpss,
+      cvss: mCvss, rce: netRce, threat: threat, roi: roi
+    });
+  }
+
+  actions.sort(function(a, b) {
+    if (a.kev > 0 && b.kev === 0) return -1;
+    if (b.kev > 0 && a.kev === 0) return 1;
+    if (b.threat !== a.threat) return b.threat - a.threat;
+    return b.epss - a.epss;
+  });
+
+  return { actions: actions.slice(0, 5), totalRisk: totalRisk };
+}
+
+function renderRemediation(vulnResults) {
+  var card = byId('remediationCard');
+  var actionsEl = byId('remediationActions');
+  var summaryEl = byId('remediationSummary');
+  if (!card || !actionsEl) return;
+
+  var rem = computeRemediation(vulnResults);
+  if (rem.actions.length === 0) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+
+  var totalVulns = 0;
+  for (var i = 0; i < vulnResults.length; i++) totalVulns += vulnResults[i].vulnerabilities.length;
+  var topFix = 0, topRoi = 0;
+  for (i = 0; i < rem.actions.length; i++) { topFix += rem.actions[i].count; topRoi += rem.actions[i].roi; }
+
+  summaryEl.textContent = 'Top ' + rem.actions.length + ' fixes address ' + topFix + ' of ' + totalVulns + ' vulnerabilities (' + Math.round(topRoi) + '% risk reduction)';
+
+  var html = '';
+  for (i = 0; i < rem.actions.length; i++) {
+    var a = rem.actions[i];
+    var rank = i + 1;
+    var threatClass = a.threat >= 70 ? 'threat-critical' : a.threat >= 50 ? 'threat-high' : a.threat >= 30 ? 'threat-medium' : 'threat-low';
+
+    html += '<div class="remediation-action">';
+    html += '<div class="remediation-action-header">';
+    html += '<div style="display:flex;gap:12px;align-items:flex-start;">';
+    html += '<span class="remediation-rank">' + rank + '</span>';
+    html += '<div class="remediation-action-left">';
+    html += '<div class="remediation-action-pkg">' + esc(a.name) + '@' + esc(a.ver) + '</div>';
+    if (a.fix) {
+      html += '<div class="remediation-action-upgrade">Upgrade to ' + esc(a.fix) + '</div>';
+    } else {
+      html += '<div style="color:var(--muted);font-size:0.9rem;">No fix version available</div>';
+    }
+    html += '</div></div>';
+    html += '<div class="remediation-action-right">';
+    html += '<span class="remediation-threat ' + threatClass + '">Threat: ' + a.threat + '</span>';
+    html += '<span class="remediation-roi">ROI: -' + a.roi + '% risk</span>';
+    html += '</div></div>';
+
+    /* Badges */
+    html += '<div class="remediation-badges">';
+    if (a.kev > 0) html += '<span class="badge badge-kev">' + a.kev + ' KEV</span>';
+    if (a.epss >= 0.1) html += '<span class="badge badge-critical">EPSS ' + (a.epss * 100).toFixed(0) + '%</span>';
+    if (a.rce) html += '<span class="badge badge-critical">Network RCE</span>';
+    if (a.sev['CRITICAL']) html += '<span class="badge badge-critical">' + a.sev['CRITICAL'] + ' Critical</span>';
+    if (a.sev['HIGH']) html += '<span class="badge badge-high">' + a.sev['HIGH'] + ' High</span>';
+    if (a.sev['MEDIUM']) html += '<span class="badge badge-medium">' + a.sev['MEDIUM'] + ' Medium</span>';
+    if (a.sev['LOW']) html += '<span class="badge badge-low">' + a.sev['LOW'] + ' Low</span>';
+    if (!a.isDirect && a.parent) html += '<span class="badge badge-unknown">via ' + esc(a.parent) + '</span>';
+    html += '</div>';
+
+    /* Reason */
+    html += '<div class="remediation-reason">';
+    if (a.fix) {
+      html += '<strong>Action:</strong> Update ' + esc(a.name) + ' from ' + esc(a.ver) + ' to ' + esc(a.fix) + '. ';
+    } else {
+      html += '<strong>Action:</strong> Review ' + esc(a.name) + '@' + esc(a.ver) + ' (no fix available). ';
+    }
+    html += '<strong>Impact:</strong> Fixes ' + a.count + ' vulnerabilit' + (a.count === 1 ? 'y' : 'ies');
+    var parts = [];
+    if (a.kev > 0) parts.push(a.kev + ' actively exploited (KEV)');
+    if (a.epss >= 0.5) parts.push('EPSS: ' + (a.epss * 100).toFixed(0) + '% exploitation probability');
+    if (a.rce) parts.push('includes network-accessible RCE');
+    if (parts.length > 0) html += ', including ' + parts.join(', ');
+    html += '. ';
+    if (a.roi >= 1) html += 'This single fix reduces project risk by <strong>' + a.roi + '%</strong>.';
+    html += '</div>';
+    html += '</div>';
+  }
+  actionsEl.innerHTML = html;
+}
+
 function renderResults(report) {
   try {
     var resultsPanel = byId("scanResults");
@@ -1161,6 +1340,8 @@ function renderResults(report) {
 
     if (vulnResults.length === 0) {
       byId("resultsList").innerHTML = '<div class="empty"><p style="color:var(--green);font-size:1.1rem;font-weight:600;">All clear! No known vulnerabilities detected.</p></div>';
+      var remCard = byId("remediationCard");
+      if (remCard) remCard.classList.add("hidden");
       showResultView("vulns");
       return;
     }
@@ -1169,6 +1350,7 @@ function renderResults(report) {
       return getWorstSeverityIdx(a) - getWorstSeverityIdx(b);
     });
     renderVulnList(vulnResults, all);
+    renderRemediation(vulnResults);
     showResultView("vulns");
   } catch (err) {
     console.error("renderResults error:", err);
