@@ -1,0 +1,40 @@
+# ══════════════════════════════════════════════════════════════
+# SCATO — Code Owners
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# These owners are automatically requested for review when a PR
+# modifies files matching the patterns below.
+# ══════════════════════════════════════════════════════════════
+
+# ─── Default: maintainer reviews everything ───
+* @saivarun3407
+
+# ─── Security-critical: parsers (command execution, input handling) ───
+/src/core/parsers/ @saivarun3407
+
+# ─── Vulnerability data sources (advisory fetching, enrichment) ───
+/src/core/advisories/ @saivarun3407
+/src/enrichment/ @saivarun3407
+
+# ─── Core scanning engine ───
+/src/scanner.ts @saivarun3407
+/src/types.ts @saivarun3407
+
+# ─── Server & API (attack surface) ───
+/src/server.ts @saivarun3407
+
+# ─── Dashboard (XSS, client-side security) ───
+/src/web/ @saivarun3407
+
+# ─── CI/CD & GitHub Actions workflows ───
+/.github/ @saivarun3407
+
+# ─── Dependency manifests (supply chain) ───
+package.json @saivarun3407
+bun.lock @saivarun3407
+tsconfig.json @saivarun3407
+
+# ─── Docker & deployment configs ───
+Dockerfile @saivarun3407
+docker-compose.yml @saivarun3407
+action.yml @saivarun3407
