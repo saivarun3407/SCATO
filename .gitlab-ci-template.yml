@@ -1,0 +1,88 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCATO GitLab CI Template
+# Include this in your .gitlab-ci.yml for dependency scanning
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Usage:
+#   include:
+#     - remote: 'https://raw.githubusercontent.com/scato/scato/main/.gitlab-ci-template.yml'
+#
+#   scato-scan:
+#     extends: .scato-scan
+#     variables:
+#       SCATO_FAIL_ON: "high"
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+.scato-scan:
+  image: scato/scato:latest
+  stage: test
+  variables:
+    SCATO_TARGET: "."
+    SCATO_FAIL_ON: "high"
+    SCATO_SOURCES: "osv,kev,epss"
+    SCATO_SBOM: "true"
+    SCATO_SARIF: "true"
+  script:
+    - |
+      ARGS="$SCATO_TARGET"
+      ARGS="$ARGS --fail-on $SCATO_FAIL_ON"
+      ARGS="$ARGS --sources $SCATO_SOURCES"
+      ARGS="$ARGS --ci"
+      ARGS="$ARGS --json"
+      
+      if [ "$SCATO_SBOM" = "true" ]; then
+        ARGS="$ARGS --sbom scato-sbom.json"
+      fi
+      
+      if [ "$SCATO_SARIF" = "true" ]; then
+        ARGS="$ARGS --sarif gl-dependency-scanning-report.json"
+      fi
+      
+      if [ -n "$SCATO_POLICY" ]; then
+        ARGS="$ARGS --policy $SCATO_POLICY"
+      fi
+      
+      scato scan $ARGS
+  artifacts:
+    reports:
+      dependency_scanning: gl-dependency-scanning-report.json
+    paths:
+      - scato-sbom.json
+      - gl-dependency-scanning-report.json
+    when: always
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# ─── Full Pipeline Template ───
+# Use this for a complete security pipeline
+
+.scato-security-pipeline:
+  stages:
+    - test
+    - report
+
+  scato-scan:
+    extends: .scato-scan
+    stage: test
+
+  scato-report:
+    image: scato/scato:latest
+    stage: report
+    needs:
+      - scato-scan
+    script:
+      - |
+        echo "=== SCATO Security Report ==="
+        if [ -f "scato-sbom.json" ]; then
+          echo "SBOM generated: scato-sbom.json"
+          echo "Components: $(cat scato-sbom.json | jq '.components | length')"
+        fi
+        if [ -f "gl-dependency-scanning-report.json" ]; then
+          echo "Vulnerabilities found: $(cat gl-dependency-scanning-report.json | jq '.runs[0].results | length')"
+        fi
+    rules:
+      - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

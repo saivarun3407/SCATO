@@ -1,0 +1,33 @@
+node_modules/
+dist/
+sbom.json
+*.tgz
+.DS_Store
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Database
+*.sqlite
+*.sqlite3
+data/
+
+# Test outputs
+test-results/
+coverage/
+*.sarif
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker
+.docker/
+
+# Logs
+*.log
+logs/

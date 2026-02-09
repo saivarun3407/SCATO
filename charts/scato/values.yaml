@@ -1,0 +1,154 @@
+# SCATO Helm Chart - Default Values
+
+# ─── Image Configuration ───
+image:
+  repository: scato/scato
+  tag: "2.0.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# ─── Replica Configuration ───
+replicaCount: 1
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# ─── Service Configuration ───
+service:
+  type: ClusterIP
+  port: 3001
+
+# ─── Ingress Configuration ───
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: scato.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: scato-tls
+    #   hosts:
+    #     - scato.local
+
+# ─── Resource Limits ───
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+# ─── Environment Variables ───
+env:
+  SCATO_PORT: "3001"
+  NODE_ENV: "production"
+
+# ─── Secrets ───
+secrets:
+  # NVD API Key
+  nvdApiKey: ""
+  # GitHub Token for GHSA integration
+  githubToken: ""
+
+# ─── PostgreSQL Configuration ───
+postgresql:
+  enabled: true
+  auth:
+    username: scato
+    password: ""  # Set via --set or external secret
+    database: scato
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+# External database (if postgresql.enabled=false)
+externalDatabase:
+  host: ""
+  port: 5432
+  user: scato
+  password: ""
+  database: scato
+
+# ─── Redis Configuration ───
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: true
+      size: 1Gi
+
+# External Redis (if redis.enabled=false)
+externalRedis:
+  host: ""
+  port: 6379
+  password: ""
+
+# ─── Storage ───
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 5Gi
+
+# ─── Security Context ───
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+# ─── Health Checks ───
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+
+# ─── Node Scheduling ───
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ─── Service Account ───
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# ─── Monitoring ───
+metrics:
+  enabled: false
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    interval: 30s

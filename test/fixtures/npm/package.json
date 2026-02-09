@@ -1,0 +1,9 @@
+{
+  "name": "scato-npm-fixture",
+  "version": "1.0.0",
+  "description": "Test fixture for SCATO npm parser",
+  "dependencies": {
+    "express": "^4.18.2",
+    "lodash": "^4.17.21"
+  }
+}

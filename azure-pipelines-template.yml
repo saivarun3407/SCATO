@@ -1,0 +1,112 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCATO Azure DevOps Pipeline Template
+# Include this in your azure-pipelines.yml for dependency scanning
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Usage:
+#   resources:
+#     repositories:
+#       - repository: scato
+#         type: github
+#         name: scato/scato
+#         ref: main
+#
+#   stages:
+#     - template: azure-pipelines-template.yml@scato
+#       parameters:
+#         failOn: 'high'
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+parameters:
+  - name: target
+    type: string
+    default: '.'
+  - name: failOn
+    type: string
+    default: 'high'
+    values:
+      - critical
+      - high
+      - medium
+      - low
+  - name: sources
+    type: string
+    default: 'osv,kev,epss'
+  - name: generateSbom
+    type: boolean
+    default: true
+  - name: generateSarif
+    type: boolean
+    default: true
+  - name: pool
+    type: string
+    default: 'ubuntu-latest'
+
+stages:
+  - stage: SecurityScan
+    displayName: 'SCATO Security Scan'
+    jobs:
+      - job: ScatoScan
+        displayName: 'Dependency Vulnerability Scan'
+        pool:
+          vmImage: ${{ parameters.pool }}
+        steps:
+          - task: UseNode@1
+            displayName: 'Install Node.js'
+            inputs:
+              version: '20.x'
+
+          - script: |
+              curl -fsSL https://bun.sh/install | bash
+              export BUN_INSTALL="$HOME/.bun"
+              export PATH="$BUN_INSTALL/bin:$PATH"
+              echo "##vso[task.setvariable variable=PATH]$BUN_INSTALL/bin:$PATH"
+            displayName: 'Install Bun'
+
+          - script: |
+              npm install -g scato
+            displayName: 'Install SCATO'
+
+          - script: |
+              ARGS="${{ parameters.target }}"
+              ARGS="$ARGS --fail-on ${{ parameters.failOn }}"
+              ARGS="$ARGS --sources ${{ parameters.sources }}"
+              ARGS="$ARGS --ci"
+              ARGS="$ARGS --json"
+              
+              if [ "${{ parameters.generateSbom }}" = "True" ]; then
+                ARGS="$ARGS --sbom $(Build.ArtifactStagingDirectory)/scato-sbom.json"
+              fi
+              
+              if [ "${{ parameters.generateSarif }}" = "True" ]; then
+                ARGS="$ARGS --sarif $(Build.ArtifactStagingDirectory)/scato-results.sarif"
+              fi
+              
+              scato scan $ARGS || echo "##vso[task.complete result=SucceededWithIssues;]Vulnerabilities found"
+            displayName: 'Run SCATO Scan'
+            env:
+              NVD_API_KEY: $(NVD_API_KEY)
+              GITHUB_TOKEN: $(GITHUB_TOKEN)
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish SBOM'
+            condition: and(succeeded(), eq('${{ parameters.generateSbom }}', true))
+            inputs:
+              pathToPublish: '$(Build.ArtifactStagingDirectory)/scato-sbom.json'
+              artifactName: 'sbom'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish SARIF'
+            condition: and(succeeded(), eq('${{ parameters.generateSarif }}', true))
+            inputs:
+              pathToPublish: '$(Build.ArtifactStagingDirectory)/scato-results.sarif'
+              artifactName: 'sarif'
+
+          # Upload SARIF to Azure DevOps Advanced Security (if enabled)
+          - script: |
+              if [ -f "$(Build.ArtifactStagingDirectory)/scato-results.sarif" ]; then
+                echo "##vso[task.uploadsummary]$(Build.ArtifactStagingDirectory)/scato-results.sarif"
+              fi
+            displayName: 'Upload SARIF Results'
+            condition: eq('${{ parameters.generateSarif }}', true)

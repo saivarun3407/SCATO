@@ -1,0 +1,133 @@
+name: "SCATO Security Scan"
+description: "Software Composition Analysis — vulnerability detection, SBOM generation, policy enforcement"
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  target:
+    description: "Directory to scan"
+    required: false
+    default: "."
+  fail-on:
+    description: "Fail at or above severity (critical, high, medium, low)"
+    required: false
+    default: "high"
+  sbom:
+    description: "Generate CycloneDX SBOM (path or 'true' for default)"
+    required: false
+    default: ""
+  sarif:
+    description: "Generate SARIF report (path or 'true' for default)"
+    required: false
+    default: ""
+  sources:
+    description: "Vulnerability sources (osv,kev,epss,nvd,ghsa)"
+    required: false
+    default: "osv,kev,epss"
+  policy:
+    description: "Path to policy JSON file"
+    required: false
+    default: ""
+  pr-comment:
+    description: "Post results as PR comment"
+    required: false
+    default: "true"
+  check-run:
+    description: "Create GitHub check run"
+    required: false
+    default: "true"
+  skip-licenses:
+    description: "Skip license detection"
+    required: false
+    default: "false"
+  nvd-api-key:
+    description: "NVD API key for enriched vulnerability data"
+    required: false
+    default: ""
+
+outputs:
+  total-vulnerabilities:
+    description: "Total number of vulnerabilities found"
+    value: ${{ steps.scan.outputs.total_vulnerabilities }}
+  risk-score:
+    description: "Composite risk score (0-100)"
+    value: ${{ steps.scan.outputs.risk_score }}
+  policy-passed:
+    description: "Whether the policy check passed"
+    value: ${{ steps.scan.outputs.policy_passed }}
+  sarif-file:
+    description: "Path to SARIF output file"
+    value: ${{ steps.scan.outputs.sarif_file }}
+  sbom-file:
+    description: "Path to SBOM output file"
+    value: ${{ steps.scan.outputs.sbom_file }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - name: Install SCATO
+      shell: bash
+      run: |
+        cd ${{ github.action_path }}
+        bun install --frozen-lockfile
+
+    - name: Run SCATO Scan
+      id: scan
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        NVD_API_KEY: ${{ inputs.nvd-api-key }}
+      run: |
+        ARGS="${{ inputs.target }}"
+        ARGS="$ARGS --fail-on ${{ inputs.fail-on }}"
+        ARGS="$ARGS --sources ${{ inputs.sources }}"
+        ARGS="$ARGS --ci"
+        ARGS="$ARGS --json"
+
+        if [ "${{ inputs.sbom }}" = "true" ]; then
+          ARGS="$ARGS --sbom scato-sbom.json"
+          echo "sbom_file=scato-sbom.json" >> $GITHUB_OUTPUT
+        elif [ -n "${{ inputs.sbom }}" ]; then
+          ARGS="$ARGS --sbom ${{ inputs.sbom }}"
+          echo "sbom_file=${{ inputs.sbom }}" >> $GITHUB_OUTPUT
+        fi
+
+        if [ "${{ inputs.sarif }}" = "true" ]; then
+          ARGS="$ARGS --sarif scato-results.sarif"
+          echo "sarif_file=scato-results.sarif" >> $GITHUB_OUTPUT
+        elif [ -n "${{ inputs.sarif }}" ]; then
+          ARGS="$ARGS --sarif ${{ inputs.sarif }}"
+          echo "sarif_file=${{ inputs.sarif }}" >> $GITHUB_OUTPUT
+        fi
+
+        if [ "${{ inputs.skip-licenses }}" = "true" ]; then
+          ARGS="$ARGS --skip-licenses"
+        fi
+
+        if [ -n "${{ inputs.policy }}" ]; then
+          ARGS="$ARGS --policy ${{ inputs.policy }}"
+        fi
+
+        if [ "${{ inputs.pr-comment }}" = "true" ]; then
+          ARGS="$ARGS --pr-comment"
+        fi
+
+        if [ "${{ inputs.check-run }}" = "true" ]; then
+          ARGS="$ARGS --check-run"
+        fi
+
+        cd ${{ github.action_path }}
+        bun src/index.ts scan $ARGS || true
+
+    - name: Upload SARIF
+      if: inputs.sarif != '' && always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif_file }}
+      continue-on-error: true

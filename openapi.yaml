@@ -1,0 +1,529 @@
+openapi: 3.0.3
+info:
+  title: SCATO API
+  description: |
+    Enterprise-grade Software Composition Analysis Tool API.
+    
+    SCATO provides vulnerability detection, SBOM generation, and policy enforcement
+    for software dependencies across multiple package ecosystems.
+  version: 2.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  contact:
+    name: SCATO Team
+    url: https://github.com/scato/scato
+
+servers:
+  - url: http://localhost:3001
+    description: Local development server
+  - url: https://api.scato.dev
+    description: Production API
+
+tags:
+  - name: Scan
+    description: Vulnerability scanning operations
+  - name: History
+    description: Scan history and analytics
+  - name: Health
+    description: Service health checks
+
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns the service health status and version
+      operationId: healthCheck
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  version:
+                    type: string
+                    example: "2.0.0"
+
+  /api/scan:
+    post:
+      tags: [Scan]
+      summary: Scan a directory
+      description: |
+        Scan a local directory for dependency vulnerabilities.
+        The directory must be accessible to the SCATO server.
+      operationId: scanDirectory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanRequest"
+      responses:
+        "200":
+          description: Scan completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanReport"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Scan failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/scan/upload:
+    post:
+      tags: [Scan]
+      summary: Upload and scan files
+      description: |
+        Upload dependency manifest files for scanning.
+        Supports package.json, requirements.txt, go.mod, pom.xml, Cargo.toml, etc.
+      operationId: scanUpload
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Manifest files to scan
+                paths:
+                  type: array
+                  items:
+                    type: string
+                  description: Relative paths for preserving directory structure
+                generateSbom:
+                  type: string
+                  enum: ["true", "false"]
+                  default: "false"
+                  description: Generate SBOM output
+                analyzeCode:
+                  type: string
+                  enum: ["true", "false"]
+                  default: "true"
+                  description: Enable code analysis
+                sources:
+                  type: string
+                  description: "Comma-separated vulnerability sources (osv,nvd,ghsa,kev,epss)"
+      responses:
+        "200":
+          description: Scan completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanReport"
+
+  /api/scan/{scanId}:
+    get:
+      tags: [History]
+      summary: Get scan by ID
+      description: Retrieve a previous scan result by its ID
+      operationId: getScanById
+      parameters:
+        - name: scanId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Scan found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanReport"
+        "404":
+          description: Scan not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/history:
+    get:
+      tags: [History]
+      summary: Get scan history
+      description: Retrieve a list of recent scans
+      operationId: getHistory
+      parameters:
+        - name: target
+          in: query
+          schema:
+            type: string
+          description: Filter by target directory
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: Maximum number of results
+      responses:
+        "200":
+          description: Scan history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scans:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ScanSummary"
+
+  /api/trend:
+    get:
+      tags: [History]
+      summary: Get vulnerability trend
+      description: Get vulnerability trend data for a target over time
+      operationId: getTrend
+      parameters:
+        - name: target
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Target directory path
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 365
+          description: Number of days to include
+      responses:
+        "200":
+          description: Trend data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trend:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TrendPoint"
+
+  /api/analytics:
+    get:
+      tags: [History]
+      summary: Get analytics
+      description: Get aggregate analytics across all scans
+      operationId: getAnalytics
+      responses:
+        "200":
+          description: Analytics data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Analytics"
+
+components:
+  schemas:
+    ScanRequest:
+      type: object
+      required:
+        - target
+      properties:
+        target:
+          type: string
+          description: Directory path to scan
+          example: /path/to/project
+        ecosystems:
+          type: array
+          items:
+            $ref: "#/components/schemas/Ecosystem"
+          description: Limit to specific ecosystems
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/VulnerabilitySource"
+          description: Vulnerability sources to query
+        skipLicenses:
+          type: boolean
+          default: false
+          description: Skip license detection
+        skipDev:
+          type: boolean
+          default: false
+          description: Skip development dependencies
+        generateSbom:
+          type: boolean
+          default: false
+          description: Generate SBOM output
+        policyFile:
+          type: string
+          description: Path to policy JSON file
+
+    ScanReport:
+      type: object
+      properties:
+        tool:
+          type: string
+          example: scato
+        version:
+          type: string
+          example: "2.0.0"
+        timestamp:
+          type: string
+          format: date-time
+        target:
+          type: string
+        ecosystems:
+          type: array
+          items:
+            $ref: "#/components/schemas/Ecosystem"
+        totalDependencies:
+          type: integer
+        totalVulnerabilities:
+          type: integer
+        severityCounts:
+          $ref: "#/components/schemas/SeverityCounts"
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScanResult"
+        metrics:
+          $ref: "#/components/schemas/ScanMetrics"
+        policyResult:
+          $ref: "#/components/schemas/PolicyResult"
+        scanDurationMs:
+          type: integer
+        scanId:
+          type: string
+          format: uuid
+
+    ScanResult:
+      type: object
+      properties:
+        dependency:
+          $ref: "#/components/schemas/Dependency"
+        vulnerabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/Vulnerability"
+
+    Dependency:
+      type: object
+      properties:
+        name:
+          type: string
+          example: lodash
+        version:
+          type: string
+          example: 4.17.21
+        ecosystem:
+          $ref: "#/components/schemas/Ecosystem"
+        isDirect:
+          type: boolean
+        license:
+          type: string
+          example: MIT
+        purl:
+          type: string
+          example: pkg:npm/lodash@4.17.21
+
+    Vulnerability:
+      type: object
+      properties:
+        id:
+          type: string
+          example: CVE-2021-23337
+        aliases:
+          type: array
+          items:
+            type: string
+        summary:
+          type: string
+        details:
+          type: string
+        severity:
+          $ref: "#/components/schemas/Severity"
+        score:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 10
+        cvssVector:
+          type: string
+        fixed_version:
+          type: string
+        references:
+          type: array
+          items:
+            type: string
+            format: uri
+        published:
+          type: string
+          format: date-time
+        isKnownExploited:
+          type: boolean
+        epssScore:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+
+    SeverityCounts:
+      type: object
+      properties:
+        CRITICAL:
+          type: integer
+        HIGH:
+          type: integer
+        MEDIUM:
+          type: integer
+        LOW:
+          type: integer
+        UNKNOWN:
+          type: integer
+
+    ScanMetrics:
+      type: object
+      properties:
+        riskScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+        riskLevel:
+          type: string
+          enum: [critical, high, medium, low, none]
+        kevCount:
+          type: integer
+        avgEpssScore:
+          type: number
+        copyleftCount:
+          type: integer
+        unknownLicenseCount:
+          type: integer
+
+    PolicyResult:
+      type: object
+      properties:
+        passed:
+          type: boolean
+        violations:
+          type: array
+          items:
+            $ref: "#/components/schemas/PolicyViolation"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/PolicyViolation"
+
+    PolicyViolation:
+      type: object
+      properties:
+        ruleId:
+          type: string
+        ruleName:
+          type: string
+        message:
+          type: string
+        severity:
+          type: string
+          enum: [error, warning, info]
+        dependency:
+          type: string
+        vulnerability:
+          type: string
+
+    ScanSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        target:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        totalDeps:
+          type: integer
+        totalVulns:
+          type: integer
+        riskScore:
+          type: integer
+
+    TrendPoint:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        totalVulns:
+          type: integer
+        riskScore:
+          type: integer
+        criticalCount:
+          type: integer
+        highCount:
+          type: integer
+
+    Analytics:
+      type: object
+      properties:
+        totalScans:
+          type: integer
+        avgRiskScore:
+          type: integer
+        frequentDeps:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              ecosystem:
+                type: string
+              scanCount:
+                type: integer
+        mostVulnerable:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              vulnCount:
+                type: integer
+
+    Ecosystem:
+      type: string
+      enum: [npm, pip, go, maven, cargo, nuget, gem, composer]
+
+    VulnerabilitySource:
+      type: string
+      enum: [osv, nvd, ghsa, kev, epss]
+
+    Severity:
+      type: string
+      enum: [CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN]
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string

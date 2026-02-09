@@ -1,0 +1,18 @@
+# SCATO Helm Chart
+# Software Composition Analysis Tool for Kubernetes
+
+apiVersion: v2
+name: scato
+description: Enterprise-grade Software Composition Analysis Tool
+type: application
+version: 1.0.0
+appVersion: "2.0.0"
+keywords:
+  - sca
+  - security
+  - vulnerability
+  - sbom
+  - dependency-scanning
+home: https://github.com/scato/scato
+maintainers:
+  - name: SCATO Team

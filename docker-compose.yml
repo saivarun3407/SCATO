@@ -1,0 +1,30 @@
+# ─── SCATO - Docker Compose ───
+# Single-service setup. No external databases needed.
+
+services:
+  scato:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: scato/scato:latest
+    container_name: scato
+    ports:
+      - "${SCATO_PORT:-3001}:3001"
+    environment:
+      - SCATO_PORT=3001
+      - SCATO_DATA_DIR=/app/data
+      - NVD_API_KEY=${NVD_API_KEY:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+    volumes:
+      - scato-data:/app/data
+      # Mount a project directory for scanning (read-only)
+      - ${SCAN_TARGET:-./}:/scan:ro
+    healthcheck:
+      test: ["CMD", "bun", "dist/index.js", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  scato-data:
