@@ -221,6 +221,7 @@ export function getDashboardHTML(): string {
           <input id="targetInput" type="text" placeholder="Absolute path to project, or . (server&#39;s current directory)" value="." title="Path is resolved on the server. Use . to scan where the server was started." />
         </div>
         <button type="button" class="btn btn-primary" id="scanBtn" onclick="runScan()">Scan</button>
+        <button type="button" class="btn btn-secondary" id="demoBtn" onclick="loadDemo()" title="Load sample data with KEV vulnerabilities to preview all features">Demo</button>
       </div>
       <div class="options-row">
         <label><input type="checkbox" id="optSkipLicenses"> Skip licenses</label>
@@ -271,18 +272,22 @@ export function getDashboardHTML(): string {
           <label for="vulnSort">Sort:</label>
           <select id="vulnSort" onchange="applyVulnFilters()">
             <option value="severity">Severity (worst first)</option>
+            <option value="kev">KEV first (exploited)</option>
+            <option value="epss">EPSS (most likely exploited)</option>
             <option value="advisories">Advisories (most first)</option>
             <option value="name">Library name A–Z</option>
           </select>
           <label for="vulnFilter">Filter:</label>
           <select id="vulnFilter" onchange="applyVulnFilters()">
             <option value="">All severities</option>
+            <option value="KEV">KEV only (known exploited)</option>
             <option value="CRITICAL">Critical only</option>
             <option value="HIGH">High and above</option>
             <option value="MEDIUM">Medium and above</option>
             <option value="LOW">Low and above</option>
           </select>
         </div>
+        <div id="vulnFilterStatus" style="display:none;padding:8px 12px;margin-bottom:8px;background:rgba(136,192,208,0.1);border-radius:6px;font-size:0.85rem;color:var(--accent);"></div>
         <div class="results-list" id="resultsList"></div>
       </div>
 
@@ -296,12 +301,14 @@ export function getDashboardHTML(): string {
           <label for="depSort">Sort:</label>
           <select id="depSort" onchange="applyDepFilters()">
             <option value="advisories">Advisories (most first)</option>
+            <option value="kev">KEV first (exploited)</option>
             <option value="severity">Severity (worst first)</option>
             <option value="name">Library name A–Z</option>
           </select>
           <label for="depFilter">Filter:</label>
           <select id="depFilter" onchange="applyDepFilters()">
             <option value="">All</option>
+            <option value="KEV">KEV only (known exploited)</option>
             <option value="hasVuln">With advisories only</option>
             <option value="CRITICAL">Critical only</option>
             <option value="HIGH">High+</option>
@@ -312,6 +319,7 @@ export function getDashboardHTML(): string {
           <button type="button" class="btn btn-secondary result-view-btn active" id="depViewList" onclick="setDepView('list')">List</button>
           <button type="button" class="btn btn-secondary result-view-btn" id="depViewTree" onclick="setDepView('tree')">Tree</button>
         </div>
+        <div id="depFilterStatus" style="display:none;padding:8px 12px;margin-top:8px;margin-bottom:8px;background:rgba(136,192,208,0.1);border-radius:6px;font-size:0.85rem;color:var(--accent);"></div>
         <p class="dep-hint" style="margin-top:8px;font-size:0.85rem;color:var(--muted);">Click a dependency to see what it does, latest version, and its dependency tree.</p>
         <div id="depOverview"></div>
       </div>
@@ -437,16 +445,179 @@ function runScan() {
 
 /* runScan is now global (no IIFE wrapper) */
 
+/* ── Demo: load sample data with KEV vulns to preview sort/filter features ── */
+function loadDemo() {
+  var demoReport = {
+    target: "/demo/sample-project",
+    timestamp: new Date().toISOString(),
+    ecosystems: ["npm"],
+    totalDependencies: 8,
+    totalVulnerabilities: 7,
+    severityCounts: { CRITICAL: 2, HIGH: 3, MEDIUM: 1, LOW: 1 },
+    metrics: { riskScore: 82 },
+    results: [
+      {
+        dependency: { name: "libwebp", version: "1.3.1", ecosystem: "npm", isDirect: true, license: "BSD-3-Clause" },
+        vulnerabilities: [
+          {
+            id: "CVE-2023-4863",
+            severity: "CRITICAL",
+            score: 8.8,
+            cvssVector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H",
+            summary: "Heap buffer overflow in libwebp allows a remote attacker to perform an out of bounds memory write via a crafted HTML page.",
+            affected_versions: "<1.3.2",
+            fixed_version: "1.3.2",
+            isKnownExploited: true,
+            kevDateAdded: "2023-09-13",
+            kevDueDate: "2023-10-04",
+            epssScore: 0.9408,
+            cwes: ["CWE-787"],
+            source: "OSV",
+            references: ["https://nvd.nist.gov/vuln/detail/CVE-2023-4863"]
+          }
+        ]
+      },
+      {
+        dependency: { name: "log4j-core", version: "2.14.1", ecosystem: "maven", isDirect: true, license: "Apache-2.0" },
+        vulnerabilities: [
+          {
+            id: "CVE-2021-44228",
+            severity: "CRITICAL",
+            score: 10.0,
+            cvssVector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+            summary: "Apache Log4j2 JNDI features used in configuration, log messages, and parameters do not protect against attacker-controlled LDAP and other JNDI related endpoints (Log4Shell).",
+            affected_versions: ">=2.0-beta9 <2.15.0",
+            fixed_version: "2.15.0",
+            isKnownExploited: true,
+            kevDateAdded: "2021-12-10",
+            kevDueDate: "2021-12-24",
+            epssScore: 0.976,
+            cwes: ["CWE-502", "CWE-400"],
+            source: "GHSA",
+            references: ["https://nvd.nist.gov/vuln/detail/CVE-2021-44228"]
+          },
+          {
+            id: "CVE-2021-45046",
+            severity: "HIGH",
+            score: 9.0,
+            cvssVector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:H",
+            summary: "Apache Log4j2 Thread Context Map pattern is vulnerable to RCE in certain non-default configurations.",
+            affected_versions: ">=2.0-beta9 <2.16.0",
+            fixed_version: "2.16.0",
+            isKnownExploited: true,
+            kevDateAdded: "2023-05-01",
+            kevDueDate: "2023-05-22",
+            epssScore: 0.926,
+            cwes: ["CWE-502"],
+            source: "GHSA",
+            references: ["https://nvd.nist.gov/vuln/detail/CVE-2021-45046"]
+          }
+        ]
+      },
+      {
+        dependency: { name: "express", version: "4.17.1", ecosystem: "npm", isDirect: true, license: "MIT" },
+        vulnerabilities: [
+          {
+            id: "CVE-2024-29041",
+            severity: "HIGH",
+            score: 7.5,
+            summary: "Express.js open redirect vulnerability via malformed URLs.",
+            affected_versions: "<4.19.2",
+            fixed_version: "4.19.2",
+            isKnownExploited: false,
+            epssScore: 0.12,
+            cwes: ["CWE-601"],
+            source: "OSV",
+            references: []
+          }
+        ]
+      },
+      {
+        dependency: { name: "jsonwebtoken", version: "8.5.1", ecosystem: "npm", isDirect: true, license: "MIT" },
+        vulnerabilities: [
+          {
+            id: "CVE-2022-23529",
+            severity: "HIGH",
+            score: 7.6,
+            summary: "jsonwebtoken vulnerable to Insecure Key Retrieval when fetching keys from untrusted sources.",
+            affected_versions: "<9.0.0",
+            fixed_version: "9.0.0",
+            isKnownExploited: false,
+            epssScore: 0.045,
+            cwes: ["CWE-20"],
+            source: "GHSA",
+            references: []
+          }
+        ]
+      },
+      {
+        dependency: { name: "minimist", version: "1.2.5", ecosystem: "npm", isDirect: false, parent: "express", license: "MIT" },
+        vulnerabilities: [
+          {
+            id: "CVE-2021-44906",
+            severity: "MEDIUM",
+            score: 5.6,
+            summary: "Prototype pollution in minimist allows adding or modifying properties of Object.prototype.",
+            affected_versions: "<1.2.6",
+            fixed_version: "1.2.6",
+            isKnownExploited: false,
+            epssScore: 0.02,
+            cwes: ["CWE-1321"],
+            source: "OSV",
+            references: []
+          }
+        ]
+      },
+      {
+        dependency: { name: "qs", version: "6.5.2", ecosystem: "npm", isDirect: false, parent: "express", license: "BSD-3-Clause" },
+        vulnerabilities: [
+          {
+            id: "CVE-2022-24999",
+            severity: "LOW",
+            score: 3.7,
+            summary: "qs prototype poisoning vulnerability allows attackers to cause a denial of service.",
+            affected_versions: "<6.5.3",
+            fixed_version: "6.5.3",
+            isKnownExploited: false,
+            epssScore: 0.008,
+            cwes: ["CWE-1321"],
+            source: "OSV",
+            references: []
+          }
+        ]
+      },
+      {
+        dependency: { name: "lodash", version: "4.17.21", ecosystem: "npm", isDirect: true, license: "MIT" },
+        vulnerabilities: []
+      },
+      {
+        dependency: { name: "axios", version: "1.6.0", ecosystem: "npm", isDirect: true, license: "MIT" },
+        vulnerabilities: []
+      }
+    ]
+  };
+  currentReport = demoReport;
+  renderResults(demoReport);
+  var el = byId("scanResults");
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+/* loadDemo is global */
+
 /* ── Render consolidated advisory count badges for a vuln array ── */
 function vulnSummaryBadges(vulns) {
   var counts = {};
+  var kevCnt = 0;
   var i, s;
   for (i = 0; i < vulns.length; i++) {
     s = (vulns[i].severity || "UNKNOWN").toUpperCase();
     if (SEV_LIST.indexOf(s) === -1) s = "UNKNOWN";
     counts[s] = (counts[s] || 0) + 1;
+    if (vulns[i].isKnownExploited) kevCnt++;
   }
   var out = '<span class="advisory-total">' + vulns.length + " advisor" + (vulns.length === 1 ? "y" : "ies") + "</span> ";
+  if (kevCnt > 0) {
+    out += '<span class="badge badge-kev">' + kevCnt + " KEV</span> ";
+  }
   for (i = 0; i < SEV_LIST.length; i++) {
     if (counts[SEV_LIST[i]]) {
       out += '<span class="badge badge-' + SEV_LIST[i].toLowerCase() + '">';
@@ -487,6 +658,11 @@ function matchSearch(name, version, q) {
 function renderVulnList(vulnResults, allResults) {
   var vh = "";
   var ri, vi, si;
+  if (vulnResults.length === 0) {
+    vh = '<div class="empty"><p style="color:var(--muted);font-size:0.95rem;">No vulnerabilities match the current filter. Try changing the filter or sort options above.</p></div>';
+    byId("resultsList").innerHTML = vh;
+    return;
+  }
   for (ri = 0; ri < vulnResults.length; ri++) {
     var res = vulnResults[ri];
     var ridx = allResults.indexOf(res);
@@ -537,6 +713,11 @@ function renderVulnList(vulnResults, allResults) {
 function renderDepOverview(direct, transitive, parentMap) {
   var dh = "";
   var di, ki;
+  if (direct.length === 0 && transitive.length === 0) {
+    dh = '<div class="empty"><p style="color:var(--muted);font-size:0.95rem;">No dependencies match the current filter. Try changing the filter or sort options above.</p></div>';
+    byId("depOverview").innerHTML = dh;
+    return;
+  }
   dh += '<div class="dep-section">';
   dh += '<div class="dep-section-title">Direct dependencies (' + direct.length + ")</div>";
   for (di = 0; di < direct.length; di++) {
@@ -615,10 +796,48 @@ function applyVulnFilters() {
     var r = vulnResults[i];
     var dep = r.dependency;
     if (!matchSearch(dep.name, dep.version, q)) continue;
-    if (minSev && !hasSeverityAtLeast(r, minSev)) continue;
+    if (minSev === "KEV") {
+      /* KEV only: at least one vuln must be isKnownExploited */
+      var hasKev = false;
+      for (var ki = 0; ki < r.vulnerabilities.length; ki++) {
+        if (r.vulnerabilities[ki].isKnownExploited) { hasKev = true; break; }
+      }
+      if (!hasKev) continue;
+    } else if (minSev && !hasSeverityAtLeast(r, minSev)) continue;
     filtered.push(r);
   }
-  if (sortBy === "name") {
+
+  /* Helper: count KEV vulns in a result */
+  function kevCount(r) {
+    var c = 0;
+    for (var j = 0; j < r.vulnerabilities.length; j++) {
+      if (r.vulnerabilities[j].isKnownExploited) c++;
+    }
+    return c;
+  }
+  /* Helper: max EPSS score in a result */
+  function maxEpss(r) {
+    var m = 0;
+    for (var j = 0; j < r.vulnerabilities.length; j++) {
+      var e = r.vulnerabilities[j].epssScore || 0;
+      if (e > m) m = e;
+    }
+    return m;
+  }
+
+  if (sortBy === "kev") {
+    /* KEV first, then by severity */
+    filtered.sort(function(a, b) {
+      var ka = kevCount(a), kb = kevCount(b);
+      if (ka !== kb) return kb - ka;
+      return getWorstSeverityIdx(a) - getWorstSeverityIdx(b);
+    });
+  } else if (sortBy === "epss") {
+    /* Highest EPSS score first */
+    filtered.sort(function(a, b) {
+      return maxEpss(b) - maxEpss(a);
+    });
+  } else if (sortBy === "name") {
     filtered.sort(function(a, b) {
       var na = (a.dependency.name + "@" + a.dependency.version).toLowerCase();
       var nb = (b.dependency.name + "@" + b.dependency.version).toLowerCase();
@@ -636,6 +855,16 @@ function applyVulnFilters() {
     });
   }
   renderVulnList(filtered, all);
+  /* Show active filter indicator */
+  var vulnFilterStatus = byId("vulnFilterStatus");
+  if (vulnFilterStatus) {
+    if (minSev || q) {
+      vulnFilterStatus.textContent = "Showing " + filtered.length + " of " + vulnResults.length + " vulnerable packages";
+      vulnFilterStatus.style.display = "block";
+    } else {
+      vulnFilterStatus.style.display = "none";
+    }
+  }
 }
 /* applyVulnFilters is global */
 
@@ -653,13 +882,30 @@ function applyDepFilters() {
   var q = searchEl ? searchEl.value : "";
   var sortBy = sortEl ? sortEl.value : "advisories";
   var filterVal = filterEl ? filterEl.value : "";
+  function depHasKev(r) {
+    if (!r.vulnerabilities) return false;
+    for (var x = 0; x < r.vulnerabilities.length; x++) {
+      if (r.vulnerabilities[x].isKnownExploited) return true;
+    }
+    return false;
+  }
+  function depKevCount(r) {
+    var c = 0;
+    if (!r.vulnerabilities) return 0;
+    for (var x = 0; x < r.vulnerabilities.length; x++) {
+      if (r.vulnerabilities[x].isKnownExploited) c++;
+    }
+    return c;
+  }
   function filterList(list) {
     var out = [];
     for (var j = 0; j < list.length; j++) {
       var r = list[j];
       var dep = r.dependency;
       if (!matchSearch(dep.name, dep.version, q)) continue;
-      if (filterVal === "hasVuln") {
+      if (filterVal === "KEV") {
+        if (!depHasKev(r)) continue;
+      } else if (filterVal === "hasVuln") {
         if (!r.vulnerabilities || r.vulnerabilities.length === 0) continue;
       } else if (filterVal && filterVal !== "hasVuln") {
         if (!r.vulnerabilities || r.vulnerabilities.length === 0) continue;
@@ -672,7 +918,15 @@ function applyDepFilters() {
   direct = filterList(direct);
   transitive = filterList(transitive);
   function sortList(list) {
-    if (sortBy === "name") {
+    if (sortBy === "kev") {
+      list.sort(function(a, b) {
+        var ka = depKevCount(a), kb = depKevCount(b);
+        if (ka !== kb) return kb - ka;
+        var ac = (a.vulnerabilities && a.vulnerabilities.length) || 0;
+        var bc = (b.vulnerabilities && b.vulnerabilities.length) || 0;
+        return bc - ac;
+      });
+    } else if (sortBy === "name") {
       list.sort(function(a, b) {
         var na = (a.dependency.name + "@" + a.dependency.version).toLowerCase();
         var nb = (b.dependency.name + "@" + b.dependency.version).toLowerCase();
@@ -699,6 +953,18 @@ function applyDepFilters() {
     parentMap[pn].push(transitive[i]);
   }
   renderDepOverview(direct, transitive, parentMap);
+  /* Show active filter indicator */
+  var depFilterStatus = byId("depFilterStatus");
+  if (depFilterStatus) {
+    var totalAll = 0;
+    for (i = 0; i < all.length; i++) totalAll++;
+    if (filterVal || q) {
+      depFilterStatus.textContent = "Showing " + (direct.length + transitive.length) + " of " + totalAll + " packages" + (filterVal === "KEV" ? " (KEV filter active)" : "");
+      depFilterStatus.style.display = "block";
+    } else {
+      depFilterStatus.style.display = "none";
+    }
+  }
 }
 /* applyDepFilters is global */
 
@@ -821,9 +1087,18 @@ function renderResults(report) {
 
     /* Stats */
     var sc = report.severityCounts || {};
+    /* Count KEV vulns across all results */
+    var totalKev = 0;
+    for (var ki = 0; ki < all.length; ki++) {
+      var kvs = all[ki].vulnerabilities || [];
+      for (var kj = 0; kj < kvs.length; kj++) {
+        if (kvs[kj].isKnownExploited) totalKev++;
+      }
+    }
     var stats = [
       { v: report.totalDependencies, l: "Dependencies", c: "" },
       { v: report.totalVulnerabilities, l: "Vulnerabilities", c: report.totalVulnerabilities > 0 ? "critical" : "ok" },
+      { v: totalKev, l: "KEV (Exploited)", c: totalKev > 0 ? "critical" : "ok" },
       { v: sc.CRITICAL || 0, l: "Critical", c: "critical" },
       { v: sc.HIGH || 0, l: "High", c: "high" },
       { v: sc.MEDIUM || 0, l: "Medium", c: "medium" },

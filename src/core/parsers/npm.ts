@@ -5,7 +5,12 @@ import type { Dependency, ParserResult } from "../../types.js";
 export async function parseNpm(dir: string): Promise<ParserResult | null> {
   const lockPath = join(dir, "package-lock.json");
   const bunLockPath = join(dir, "bun.lock");
+  const yarnLockPath = join(dir, "yarn.lock");
   const pkgPath = join(dir, "package.json");
+
+  // Read package.json for direct dep names (used by yarn.lock parser)
+  let pkgJsonContent: string | null = null;
+  try { pkgJsonContent = await readFile(pkgPath, "utf-8"); } catch {}
 
   // 1. Try package-lock.json (npm — has transitive deps with parent info)
   try {
@@ -19,10 +24,16 @@ export async function parseNpm(dir: string): Promise<ParserResult | null> {
     return parseBunLock(bunContent, bunLockPath);
   } catch { /* not found, try next */ }
 
-  // 3. Fall back to package.json (direct deps only, no tree)
+  // 3. Try yarn.lock (Yarn — has all resolved packages)
   try {
-    const pkgContent = await readFile(pkgPath, "utf-8");
-    return parsePackageJson(pkgContent, pkgPath);
+    const yarnContent = await readFile(yarnLockPath, "utf-8");
+    return parseYarnLock(yarnContent, yarnLockPath, pkgJsonContent);
+  } catch { /* not found, try next */ }
+
+  // 4. Fall back to package.json (direct deps only, no tree)
+  try {
+    const content = pkgJsonContent || await readFile(pkgPath, "utf-8");
+    return parsePackageJson(content, pkgPath);
   } catch {
     return null;
   }
@@ -220,6 +231,98 @@ function parsePackageJson(content: string, file: string): ParserResult {
       isDirect: true,
       purl: `pkg:npm/${encodeURIComponent(name)}@${version}`,
     });
+  }
+
+  return { ecosystem: "npm", file, dependencies: deps };
+}
+
+/**
+ * Parse yarn.lock (Yarn v1 classic and Yarn v2+ berry).
+ * yarn.lock lists every resolved package with version and dependencies.
+ * Cross-ref package.json to determine direct vs transitive.
+ */
+function parseYarnLock(content: string, file: string, pkgJsonContent: string | null): ParserResult {
+  const deps: Dependency[] = [];
+  const directNames = new Set<string>();
+
+  // Get direct dep names from package.json
+  if (pkgJsonContent) {
+    try {
+      const pkg = JSON.parse(pkgJsonContent);
+      for (const name of Object.keys(pkg.dependencies || {})) directNames.add(name);
+      for (const name of Object.keys(pkg.devDependencies || {})) directNames.add(name);
+    } catch {}
+  }
+
+  const seen = new Set<string>();
+  const blocks = content.split(/\n(?=[^\s#])/);
+  const pkgDepsMap = new Map<string, string[]>();
+
+  for (const block of blocks) {
+    const lines = block.split("\n");
+    const header = lines[0];
+    if (!header || header.startsWith("#") || header.startsWith("__metadata")) continue;
+
+    // Extract package name from header
+    const headerClean = header.replace(/["']/g, "").replace(/:$/, "");
+    const firstSpec = headerClean.split(",")[0].trim();
+    const atIdx = firstSpec.lastIndexOf("@");
+    let pkgName: string | null = null;
+    if (atIdx > 0) {
+      pkgName = firstSpec.substring(0, atIdx);
+    } else if (firstSpec.match(/^[a-zA-Z@]/)) {
+      pkgName = firstSpec;
+    }
+    if (!pkgName) continue;
+
+    let resolvedVersion = "";
+    const childDeps: string[] = [];
+    let inDepsBlock = false;
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      if (!resolvedVersion) {
+        const vMatch = trimmed.match(/^version\s+["']?([^"'\s]+)["']?/) ||
+                       trimmed.match(/^version:\s+["']?([^"'\s]+)["']?/);
+        if (vMatch) { resolvedVersion = vMatch[1]; continue; }
+      }
+
+      if (trimmed === "dependencies:" || trimmed.startsWith("dependencies:")) {
+        inDepsBlock = true; continue;
+      }
+      if (inDepsBlock && !line.startsWith("    ") && trimmed !== "") {
+        inDepsBlock = false;
+      }
+      if (inDepsBlock) {
+        const depMatch = trimmed.match(/^["']?([^"'\s]+)["']?\s/);
+        if (depMatch) childDeps.push(depMatch[1]);
+      }
+    }
+
+    if (!resolvedVersion) continue;
+    const key = `${pkgName}@${resolvedVersion}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pkgDepsMap.set(pkgName, childDeps);
+
+    deps.push({
+      name: pkgName,
+      version: resolvedVersion,
+      ecosystem: "npm",
+      isDirect: directNames.has(pkgName),
+      purl: `pkg:npm/${encodeURIComponent(pkgName)}@${resolvedVersion}`,
+    });
+  }
+
+  // Build parent relationships for transitive deps
+  for (const dep of deps) {
+    if (!dep.isDirect) {
+      for (const [parentName, children] of pkgDepsMap) {
+        if (children.includes(dep.name)) { dep.parent = parentName; break; }
+      }
+    }
   }
 
   return { ecosystem: "npm", file, dependencies: deps };
