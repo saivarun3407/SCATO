@@ -5,7 +5,7 @@
 #
 # Usage:
 #   include:
-#     - remote: 'https://raw.githubusercontent.com/scato/scato/main/.gitlab-ci-template.yml'
+#     - remote: 'https://raw.githubusercontent.com/saivarun3407/SCATO/main/.gitlab-ci-template.yml'
 #
 #   scato-scan:
 #     extends: .scato-scan
@@ -15,7 +15,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 .scato-scan:
-  image: scato/scato:latest
+  image: node:20-slim  # Build SCATO from source in before_script
   stage: test
   variables:
     SCATO_TARGET: "."
@@ -69,7 +69,7 @@
     stage: test
 
   scato-report:
-    image: scato/scato:latest
+    image: node:20-slim  # Build SCATO from source in before_script
     stage: report
     needs:
       - scato-scan

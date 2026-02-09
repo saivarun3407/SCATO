@@ -8,7 +8,7 @@
 #     repositories:
 #       - repository: scato
 #         type: github
-#         name: scato/scato
+#         name: node:20-slim
 #         ref: main
 #
 #   stages:

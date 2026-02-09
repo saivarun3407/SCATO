@@ -17,7 +17,7 @@ Please do not report security vulnerabilities through public GitHub issues, disc
 
 ### 2. Report Privately
 
-Send a detailed report to: **security@scato.dev** (or create a private security advisory on GitHub)
+Please use [GitHub's private security advisory feature](https://github.com/saivarun3407/SCATO/security/advisories/new) to report vulnerabilities.
 
 Include:
 - Description of the vulnerability
@@ -41,8 +41,7 @@ Include:
 1. **Keep SCATO Updated**: Always use the latest version
 2. **Protect API Keys**: Never commit NVD or GitHub tokens to version control
 3. **Use Environment Variables**: Store secrets in `.env` files (not `.env.example`)
-4. **Review Policies**: Customize `.scato-policy.json` for your security requirements
-5. **Enable CI/CD Integration**: Automate scanning on every commit
+4. **Enable CI/CD Integration**: Automate scanning on every commit
 
 ### For Developers
 
@@ -56,10 +55,10 @@ Include:
 SCATO includes several security features:
 
 - **Multi-Source Vulnerability Data**: OSV, NVD, GHSA, CISA KEV, EPSS
-- **Policy Enforcement**: Configurable security policies
 - **SBOM Generation**: CycloneDX and SPDX formats
 - **License Detection**: Flags copyleft and unknown licenses
 - **SARIF Output**: Integration with security dashboards
+- **Command Injection Prevention**: All parsers use `execFileSync` (no shell) per OWASP CWE-78
 
 ## Acknowledgments
 
@@ -69,6 +68,6 @@ We appreciate responsible disclosure and will acknowledge security researchers w
 
 ## Contact
 
-For security inquiries: security@scato.dev
+For security inquiries: Use [GitHub Security Advisories](https://github.com/saivarun3407/SCATO/security/advisories/new)
 
-For general questions: Open a GitHub issue
+For general questions: Open a [GitHub Issue](https://github.com/saivarun3407/SCATO/issues) or [Discussion](https://github.com/saivarun3407/SCATO/discussions)

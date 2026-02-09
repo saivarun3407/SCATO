@@ -2,7 +2,7 @@
 
 # ─── Image Configuration ───
 image:
-  repository: scato/scato
+  repository: saivarun3407/scato
   tag: "2.0.0"
   pullPolicy: IfNotPresent
 

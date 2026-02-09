@@ -87,7 +87,7 @@ export function generateSarif(report: ScanReport): SarifLog {
       driver: {
         name: "SCATO",
         version: report.version,
-        informationUri: "https://github.com/scato/scato",
+        informationUri: "https://github.com/saivarun3407/SCATO",
         rules,
       },
     },

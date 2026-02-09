@@ -12,7 +12,7 @@ info:
     url: https://opensource.org/licenses/MIT
   contact:
     name: SCATO Team
-    url: https://github.com/scato/scato
+    url: https://github.com/saivarun3407/SCATO
 
 servers:
   - url: http://localhost:3001

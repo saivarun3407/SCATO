@@ -6,7 +6,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: scato/scato:latest
+    build: .
     container_name: scato
     ports:
       - "${SCATO_PORT:-3001}:3001"
